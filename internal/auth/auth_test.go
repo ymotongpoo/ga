@@ -1,11 +1,11 @@
 // Copyright 2025 Yoshi Yamaguchi
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     https://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,7 +26,7 @@ func TestAuthServiceImpl_Login_InvalidConfig(t *testing.T) {
 	config := &OAuth2Config{
 		ClientID:     "", // 空のクライアントID
 		ClientSecret: "",
-		RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
+		RedirectURL:  "http://localhost:8080/callback",
 		Scopes:       []string{"https://www.googleapis.com/auth/analytics.readonly"},
 	}
 
@@ -48,7 +48,7 @@ func TestAuthServiceImpl_GetCredentials_NoToken(t *testing.T) {
 	config := &OAuth2Config{
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
-		RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
+		RedirectURL:  "http://localhost:8080/callback",
 		Scopes:       []string{"https://www.googleapis.com/auth/analytics.readonly"},
 	}
 
@@ -65,7 +65,7 @@ func TestAuthServiceImpl_IsAuthenticated_NoToken(t *testing.T) {
 	config := &OAuth2Config{
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
-		RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
+		RedirectURL:  "http://localhost:8080/callback",
 		Scopes:       []string{"https://www.googleapis.com/auth/analytics.readonly"},
 	}
 
@@ -81,7 +81,7 @@ func TestAuthServiceImpl_ClearToken(t *testing.T) {
 	config := &OAuth2Config{
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
-		RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
+		RedirectURL:  "http://localhost:8080/callback",
 		Scopes:       []string{"https://www.googleapis.com/auth/analytics.readonly"},
 	}
 
@@ -148,7 +148,7 @@ func TestNewGoogleAnalyticsAuthService(t *testing.T) {
 		t.Error("ClientSecretが正しく設定されていません")
 	}
 
-	if impl.config.RedirectURL != "urn:ietf:wg:oauth:2.0:oob" {
+	if impl.config.RedirectURL != "http://localhost:8080/callback" {
 		t.Error("RedirectURLが正しく設定されていません")
 	}
 

@@ -12,10 +12,14 @@ Google Analytics 4 (GA4) を使用して、WebサイトのURLごとのトラッ�
 
 #### Acceptance Criteria
 
-1. WHEN ユーザーが `ga --login` コマンドを実行する THEN システムは OAuth認証フローを開始する SHALL
-2. WHEN OAuth認証が成功する THEN システムは認証トークンをローカルに安全に保存する SHALL
-3. IF 認証が失敗する THEN システムは適切なエラーメッセージを表示する SHALL
-4. WHEN 認証トークンが期限切れになる THEN システムは自動的にトークンを更新する SHALL
+1. WHEN ユーザーが `ga --login` コマンドを実行する THEN システムは OAuth2オフラインアクセスフローを開始する SHALL
+2. WHEN OAuth認証フローが開始される THEN システムはローカルHTTPサーバーを起動してリダイレクトを受信する SHALL
+3. WHEN OAuth認証が成功する THEN システムは認証トークンをローカルに安全に保存する SHALL
+4. IF 認証が失敗する THEN システムは適切なエラーメッセージを表示する SHALL
+5. WHEN 認証トークンが期限切れになる THEN システムは自動的にトークンを更新する SHALL
+6. WHEN OAuth2設定を行う THEN システムはOOB（Out-of-Band）フローを使用してはならない SHALL
+7. WHEN リダイレクトURLを設定する THEN システムは `http://localhost:8080/callback` を使用する SHALL
+8. WHEN 認証フローが完了する THEN システムはローカルHTTPサーバーを適切に停止する SHALL
 
 ### Requirement 2: YAML設定ファイル処理
 

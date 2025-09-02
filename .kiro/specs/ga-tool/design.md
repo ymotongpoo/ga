@@ -78,6 +78,8 @@ type AuthService interface {
     Login(ctx context.Context) error
     GetCredentials(ctx context.Context) (*oauth2.Token, error)
     RefreshToken(ctx context.Context) error
+    IsAuthenticated(ctx context.Context) bool
+    ClearToken() error
 }
 
 type OAuth2Config struct {
@@ -86,12 +88,27 @@ type OAuth2Config struct {
     RedirectURL  string
     Scopes       []string
 }
+
+type LocalServer struct {
+    server   *http.Server
+    authCode chan string
+    errChan  chan error
+}
 ```
 
 **責任:**
-- OAuth2認証フローの管理
+- OAuth2オフラインアクセスフローの管理
+- ローカルHTTPサーバーによるリダイレクト処理
 - トークンの保存と更新
 - 認証状態の検証
+
+**オフラインアクセスフロー実装:**
+1. ローカルHTTPサーバー（`http://localhost:8080/callback`）を起動
+2. OAuth2認証URLを生成してブラウザで開く
+3. ユーザーが認証を完了するとリダイレクトでコールバックを受信
+4. 認証コードを取得してトークンに交換
+5. リフレッシュトークンを含むトークンを安全に保存
+6. ローカルサーバーを停止
 
 ### 3. Configuration Service (`internal/config/`)
 
@@ -303,6 +320,73 @@ tests/
     └── sample_response.json
 ```
 
+## OAuth2オフラインアクセスフロー詳細
+
+### フロー概要
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant CLI as CLIアプリ
+    participant Server as ローカルサーバー
+    participant Browser as ブラウザ
+    participant Google as Google OAuth2
+
+    User->>CLI: ga --login
+    CLI->>Server: HTTPサーバー起動 (localhost:8080)
+    CLI->>Browser: 認証URL開く
+    Browser->>Google: 認証リクエスト
+    Google->>User: 認証画面表示
+    User->>Google: 認証情報入力
+    Google->>Server: リダイレクト (/callback?code=...)
+    Server->>CLI: 認証コード送信
+    CLI->>Google: 認証コード→トークン交換
+    Google->>CLI: アクセストークン + リフレッシュトークン
+    CLI->>CLI: トークン保存
+    CLI->>Server: サーバー停止
+    CLI->>User: 認証完了通知
+```
+
+### 実装詳細
+
+```go
+type LocalServer struct {
+    server   *http.Server
+    authCode chan string
+    errChan  chan error
+    port     int
+}
+
+func (ls *LocalServer) Start(ctx context.Context) error {
+    mux := http.NewServeMux()
+    mux.HandleFunc("/callback", ls.handleCallback)
+
+    ls.server = &http.Server{
+        Addr:    fmt.Sprintf(":%d", ls.port),
+        Handler: mux,
+    }
+
+    go func() {
+        if err := ls.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            ls.errChan <- err
+        }
+    }()
+
+    return nil
+}
+
+func (ls *LocalServer) handleCallback(w http.ResponseWriter, r *http.Request) {
+    code := r.URL.Query().Get("code")
+    if code == "" {
+        ls.errChan <- errors.New("認証コードが取得できませんでした")
+        return
+    }
+
+    ls.authCode <- code
+    fmt.Fprintf(w, "認証が完了しました。このタブを閉じてください。")
+}
+```
+
 ## セキュリティ考慮事項
 
 ### 1. 認証情報の保護
@@ -310,18 +394,28 @@ tests/
 - OAuth2トークンの暗号化保存
 - 設定ファイルでの平文パスワード禁止
 - 環境変数での機密情報管理
+- ローカルサーバーのポート制限（localhost のみ）
 
 ### 2. API通信のセキュリティ
 
 - HTTPS通信の強制
 - TLS証明書の検証
 - リクエスト/レスポンスのログ制限
+- OAuth2 state パラメータによるCSRF攻撃防止
 
 ### 3. ファイルアクセス制御
 
 - 設定ファイルの適切な権限設定
 - 出力ファイルの安全な作成
 - 一時ファイルの適切な削除
+- トークンファイルの権限制限（0600）
+
+### 4. ローカルサーバーのセキュリティ
+
+- localhost のみでのバインド
+- 認証完了後の即座なサーバー停止
+- タイムアウト設定による自動停止
+- 不正なリクエストの適切な処理
 
 ## パフォーマンス考慮事項
 

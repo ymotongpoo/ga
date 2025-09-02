@@ -1,0 +1,133 @@
+# Google Analytics 4 設定ファイル例
+# このファイルを ga.yaml としてコピーして使用してください
+#
+# 使用方法:
+#   1. このファイルを ga.yaml にコピー
+#   2. 実際のアカウント、プロパティ、ストリームIDに変更
+#   3. 必要に応じて期間やメトリクスを調整
+#   4. ga コマンドを実行
+
+# ==========================================
+# 基本設定
+# ==========================================
+
+# 集計期間（YYYY-MM-DD形式で指定）
+start_date: "2024-01-01"  # 集計開始日
+end_date: "2024-01-31"    # 集計終了日
+
+# Google Analytics アカウントID（数字のみ）
+# Google Analytics の管理画面で確認できます
+account: "123456789"
+
+# ==========================================
+# プロパティとストリーム設定
+# ==========================================
+
+properties:
+  # プロパティ1: メインサイト
+  - property: "987654321"  # プロパティID（数字のみ）
+    streams:
+      - stream: "1234567"  # ストリームID（数字のみ）
+
+        # 取得するディメンション（分析軸）
+        dimensions:
+          - "date"          # 日付
+          - "pagePath"      # ページパス
+          # - "deviceCategory"  # デバイスカテゴリ（デスクトップ、モバイル、タブレット）
+          # - "country"         # 国
+          # - "city"            # 都市
+          # - "source"          # 参照元
+          # - "medium"          # メディア
+
+        # 取得するメトリクス（測定値）
+        metrics:
+          - "sessions"                    # セッション数
+          - "activeUsers"                 # アクティブユーザー数
+          - "newUsers"                    # 新規ユーザー数
+          - "averageSessionDuration"      # セッションあたりの平均エンゲージメント時間
+
+# ==========================================
+# 複数プロパティの設定例
+# ==========================================
+
+# 複数のプロパティやストリームを設定する場合:
+# properties:
+#   # プロパティ1: メインサイト
+#   - property: "987654321"
+#     streams:
+#       - stream: "1234567"
+#         dimensions:
+#           - "date"
+#           - "pagePath"
+#         metrics:
+#           - "sessions"
+#           - "activeUsers"
+#           - "newUsers"
+#           - "averageSessionDuration"
+#
+#   # プロパティ2: モバイルアプリ
+#   - property: "111222333"
+#     streams:
+#       - stream: "7654321"
+#         dimensions:
+#           - "date"
+#           - "deviceCategory"
+#         metrics:
+#           - "activeUsers"
+#           - "newUsers"
+#
+#   # プロパティ3: 別サイト（複数ストリーム）
+#   - property: "444555666"
+#     streams:
+#       # ストリーム1: ウェブサイト
+#       - stream: "1111111"
+#         dimensions:
+#           - "date"
+#           - "pagePath"
+#           - "country"
+#         metrics:
+#           - "sessions"
+#           - "activeUsers"
+#
+#       # ストリーム2: モバイルアプリ
+#       - stream: "2222222"
+#         dimensions:
+#           - "date"
+#           - "deviceCategory"
+#         metrics:
+#           - "newUsers"
+#           - "averageSessionDuration"
+
+# ==========================================
+# 利用可能なディメンション例
+# ==========================================
+# - date: 日付
+# - pagePath: ページパス
+# - pageTitle: ページタイトル
+# - deviceCategory: デバイスカテゴリ
+# - operatingSystem: オペレーティングシステム
+# - browser: ブラウザ
+# - country: 国
+# - city: 都市
+# - source: 参照元
+# - medium: メディア
+# - campaign: キャンペーン
+# - landingPage: ランディングページ
+# - exitPage: 離脱ページ
+
+# ==========================================
+# 利用可能なメトリクス例
+# ==========================================
+# - sessions: セッション数
+# - activeUsers: アクティブユーザー数
+# - newUsers: 新規ユーザー数
+# - averageSessionDuration: セッションあたりの平均エンゲージメント時間
+
+# ==========================================
+# 注意事項
+# ==========================================
+# 1. アカウント、プロパティ、ストリームIDは実際の値に変更してください
+# 2. 日付は YYYY-MM-DD 形式で指定してください
+# 3. start_date は end_date より前の日付である必要があります
+# 4. IDはすべて数字のみで指定してください
+# 5. 大量のデータを取得する場合は、期間を短くすることを推奨します

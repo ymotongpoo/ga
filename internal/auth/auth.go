@@ -16,10 +16,15 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/ymotongpoo/ga/internal/errors"
@@ -57,11 +62,21 @@ type OAuth2Config struct {
 	Scopes       []string
 }
 
+// LocalServer はOAuth2認証用のローカルHTTPサーバー
+type LocalServer struct {
+	server   *http.Server
+	authCode chan string
+	errChan  chan error
+	state    string
+	port     int
+}
+
 // AuthServiceImpl はAuthServiceの実装
 type AuthServiceImpl struct {
 	config     *OAuth2Config
 	oauth2Conf *oauth2.Config
 	tokenFile  string
+	server     *LocalServer
 }
 
 // TokenInfo はトークンの情報を表す構造体
@@ -87,10 +102,14 @@ func NewAuthService(config *OAuth2Config) AuthService {
 	homeDir, _ := os.UserHomeDir()
 	tokenFile := filepath.Join(homeDir, ".ga_token.json")
 
+	// ローカルサーバーを初期化（ポート8080を使用）
+	server := NewLocalServer(8080)
+
 	return &AuthServiceImpl{
 		config:     config,
 		oauth2Conf: oauth2Conf,
 		tokenFile:  tokenFile,
+		server:     server,
 	}
 }
 
@@ -101,19 +120,47 @@ func (a *AuthServiceImpl) Login(ctx context.Context) error {
 		return errors.NewAuthError("OAuth2クライアント設定が不正です", nil)
 	}
 
-	// 認証URLを生成
-	authURL := a.oauth2Conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-
-	fmt.Printf("以下のURLをブラウザで開いて認証を完了してください:\n%s\n", authURL)
-	fmt.Print("認証コードを入力してください: ")
-
-	var authCode string
-	if _, err := fmt.Scanln(&authCode); err != nil {
-		return errors.NewAuthError("認証コードの読み取りに失敗しました", err)
+	// ローカルサーバーを起動
+	fmt.Println("認証用ローカルサーバーを起動しています...")
+	if err := a.server.Start(ctx); err != nil {
+		// ポート使用中エラーの場合は、より具体的なメッセージを表示
+		if isPortInUseError(err) {
+			return errors.NewAuthError(
+				fmt.Sprintf("ポート8080が既に使用されています。他のアプリケーションを終了してから再試行してください: %v", err),
+				err)
+		}
+		return errors.NewAuthError("ローカルサーバーの起動に失敗しました", err)
 	}
 
-	if authCode == "" {
-		return errors.NewAuthError("認証コードが入力されていません", nil)
+	// サーバー停止を確実に実行
+	defer func() {
+		if err := a.server.Stop(ctx); err != nil {
+			fmt.Printf("警告: ローカルサーバーの停止に失敗しました: %v\n", err)
+		}
+	}()
+
+	// OAuth2 stateパラメータを取得
+	state := a.server.GetState()
+
+	// 認証URLを生成（オフラインアクセスとstateパラメータを含む）
+	authURL := a.oauth2Conf.AuthCodeURL(state,
+		oauth2.AccessTypeOffline,
+		oauth2.ApprovalForce) // 常にリフレッシュトークンを取得
+
+	fmt.Printf("ブラウザで認証ページを開いています...\n")
+	fmt.Printf("自動で開かない場合は、以下のURLを手動で開いてください:\n%s\n", authURL)
+
+	// ブラウザを自動で開く
+	if err := openBrowser(authURL); err != nil {
+		fmt.Printf("ブラウザの自動起動に失敗しました: %v\n", err)
+		fmt.Printf("上記のURLを手動でブラウザで開いてください。\n")
+	}
+
+	// 認証コードの受信を待機（タイムアウト: 5分）
+	fmt.Println("認証の完了を待機しています...")
+	authCode, err := a.server.WaitForAuthCode(ctx, 5*time.Minute)
+	if err != nil {
+		return errors.NewAuthError("認証の完了に失敗しました", err)
 	}
 
 	// 認証コードをトークンに交換
@@ -125,6 +172,11 @@ func (a *AuthServiceImpl) Login(ctx context.Context) error {
 	// トークンの有効性を検証
 	if token.AccessToken == "" {
 		return errors.NewAuthError("有効なアクセストークンを取得できませんでした", nil)
+	}
+
+	// リフレッシュトークンの確認
+	if token.RefreshToken == "" {
+		fmt.Println("警告: リフレッシュトークンが取得できませんでした。トークンの有効期限が切れた際は再認証が必要です。")
 	}
 
 	// トークンを保存
@@ -235,11 +287,17 @@ func (a *AuthServiceImpl) GetTokenInfo() (*TokenInfo, error) {
 
 // saveToken はトークンをファイルに保存する
 func (a *AuthServiceImpl) saveToken(token *oauth2.Token) error {
+	// トークンファイルを安全な権限で作成（所有者のみ読み書き可能）
 	file, err := os.OpenFile(a.tokenFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("トークンファイルの作成に失敗しました: %w", err)
 	}
 	defer file.Close()
+
+	// ファイル権限を確実に設定（既存ファイルの場合も）
+	if err := file.Chmod(0600); err != nil {
+		return fmt.Errorf("トークンファイルの権限設定に失敗しました: %w", err)
+	}
 
 	if err := json.NewEncoder(file).Encode(token); err != nil {
 		return fmt.Errorf("トークンのエンコードに失敗しました: %w", err)
@@ -264,12 +322,179 @@ func (a *AuthServiceImpl) loadToken() (*oauth2.Token, error) {
 	return &token, nil
 }
 
+// NewLocalServer は新しいLocalServerを作成する
+func NewLocalServer(port int) *LocalServer {
+	state, _ := generateRandomState()
+	return &LocalServer{
+		authCode: make(chan string, 1),
+		errChan:  make(chan error, 1),
+		state:    state,
+		port:     port,
+	}
+}
+
+// Start はローカルHTTPサーバーを起動する
+func (ls *LocalServer) Start(ctx context.Context) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", ls.handleCallback)
+
+	ls.server = &http.Server{
+		Addr:    fmt.Sprintf("localhost:%d", ls.port),
+		Handler: mux,
+	}
+
+	// サーバー起動の成功/失敗を通知するチャネル
+	startChan := make(chan error, 1)
+
+	go func() {
+		if err := ls.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			startChan <- fmt.Errorf("ローカルサーバーの起動に失敗しました (ポート %d): %w", ls.port, err)
+		}
+	}()
+
+	// サーバーが起動するまで少し待機してからポートの使用状況を確認
+	time.Sleep(100 * time.Millisecond)
+
+	// ポートが使用中かどうかを確認
+	select {
+	case err := <-startChan:
+		return err
+	default:
+		// サーバーが正常に起動した
+		return nil
+	}
+}
+
+// Stop はローカルHTTPサーバーを停止する
+func (ls *LocalServer) Stop(ctx context.Context) error {
+	if ls.server == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	return ls.server.Shutdown(ctx)
+}
+
+// WaitForAuthCode は認証コードの受信を待機する
+func (ls *LocalServer) WaitForAuthCode(ctx context.Context, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	select {
+	case authCode := <-ls.authCode:
+		return authCode, nil
+	case err := <-ls.errChan:
+		return "", err
+	case <-ctx.Done():
+		return "", fmt.Errorf("認証がタイムアウトしました")
+	}
+}
+
+// GetState はOAuth2 stateパラメータを取得する
+func (ls *LocalServer) GetState() string {
+	return ls.state
+}
+
+// handleCallback は/callbackエンドポイントのハンドラー
+func (ls *LocalServer) handleCallback(w http.ResponseWriter, r *http.Request) {
+	// CSRF攻撃防止のためのstate検証
+	receivedState := r.URL.Query().Get("state")
+	if receivedState != ls.state {
+		ls.errChan <- fmt.Errorf("無効なstateパラメータです。CSRF攻撃の可能性があります")
+		http.Error(w, "無効なリクエストです", http.StatusBadRequest)
+		return
+	}
+
+	// エラーチェック
+	if errorCode := r.URL.Query().Get("error"); errorCode != "" {
+		errorDesc := r.URL.Query().Get("error_description")
+		ls.errChan <- fmt.Errorf("認証エラー: %s - %s", errorCode, errorDesc)
+		http.Error(w, "認証に失敗しました", http.StatusBadRequest)
+		return
+	}
+
+	// 認証コードを取得
+	authCode := r.URL.Query().Get("code")
+	if authCode == "" {
+		ls.errChan <- fmt.Errorf("認証コードが取得できませんでした")
+		http.Error(w, "認証コードが見つかりません", http.StatusBadRequest)
+		return
+	}
+
+	// 認証コードをチャネルに送信
+	select {
+	case ls.authCode <- authCode:
+		// 成功レスポンスを返す
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>認証完了</title>
+</head>
+<body>
+    <h1>認証が完了しました</h1>
+    <p>このタブを閉じてください。</p>
+    <script>
+        setTimeout(function() {
+            window.close();
+        }, 3000);
+    </script>
+</body>
+</html>`)
+	default:
+		ls.errChan <- fmt.Errorf("認証コードの処理に失敗しました")
+		http.Error(w, "内部エラーが発生しました", http.StatusInternalServerError)
+	}
+}
+
+// generateRandomState はランダムなstateパラメータを生成する
+func generateRandomState() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// openBrowser はデフォルトブラウザでURLを開く
+func openBrowser(url string) error {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "cmd"
+		args = []string{"/c", "start"}
+	case "darwin":
+		cmd = "open"
+	default: // "linux", "freebsd", "openbsd", "netbsd"
+		cmd = "xdg-open"
+	}
+	args = append(args, url)
+	return exec.Command(cmd, args...).Start()
+}
+
+// isPortInUseError はポート使用中エラーかどうかを判定する
+func isPortInUseError(err error) bool {
+	return err != nil && (
+		// Linux/Unix系
+		fmt.Sprintf("%v", err) == "listen tcp 127.0.0.1:8080: bind: address already in use" ||
+		// Windows
+		fmt.Sprintf("%v", err) == "listen tcp 127.0.0.1:8080: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted." ||
+		// 一般的なパターン
+		fmt.Sprintf("%v", err) == "address already in use")
+}
+
 // NewGoogleAnalyticsAuthService はGoogle Analytics用の認証サービスを作成する
 func NewGoogleAnalyticsAuthService(clientID, clientSecret string) AuthService {
 	config := &OAuth2Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
+		RedirectURL:  "http://localhost:8080/callback",
 		Scopes:       []string{analyticsreporting.AnalyticsReadonlyScope},
 	}
 	return NewAuthService(config)
