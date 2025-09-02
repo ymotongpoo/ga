@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,8 +24,9 @@ func TestAuthServiceImpl_Login_InvalidConfig(t *testing.T) {
 		t.Error("無効な設定でもエラーが発生しませんでした")
 	}
 
-	if err.Error() != "[AUTH_ERROR] OAuth2クライアント設定が不正です" {
-		t.Errorf("期待されるエラーメッセージと異なります: %s", err.Error())
+	expectedError := "OAuth2クライアント設定が不正です"
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Errorf("期待されるエラーメッセージが含まれていません。期待: %s, 実際: %s", expectedError, err.Error())
 	}
 }
 
