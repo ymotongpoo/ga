@@ -9,18 +9,23 @@ import (
 	"github.com/ymotongpoo/ga/internal/analytics"
 	"github.com/ymotongpoo/ga/internal/auth"
 	"github.com/ymotongpoo/ga/internal/config"
+	"github.com/ymotongpoo/ga/internal/errors"
 	"github.com/ymotongpoo/ga/internal/output"
 )
 
 func main() {
 	ctx := context.Background()
 
-	app := &CLIApp{}
+	app := NewCLIApp()
 
-	if err := app.Run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	// サービスの初期化
+	if err := app.initializeServices(); err != nil {
+		fmt.Fprintf(os.Stderr, "サービス初期化エラー: %v\n", err)
 		os.Exit(1)
 	}
+
+	exitCode := app.Run(ctx, os.Args[1:])
+	os.Exit(exitCode)
 }
 
 // CLIApp はメインアプリケーション構造体
@@ -31,32 +36,87 @@ type CLIApp struct {
 	outputService    output.OutputService
 }
 
+// NewCLIApp は新しいCLIAppインスタンスを作成する
+func NewCLIApp() *CLIApp {
+	return &CLIApp{
+		// サービスは後で初期化される
+		// 現在は未実装のため nil のまま
+	}
+}
+
+// initializeServices はサービスを初期化する
+func (app *CLIApp) initializeServices() error {
+	// TODO: 各サービスの実装後に初期化処理を追加
+	// app.authService = auth.NewAuthService()
+	// app.configService = config.NewConfigService()
+	// app.analyticsService = analytics.NewAnalyticsService()
+	// app.outputService = output.NewOutputService()
+	return nil
+}
+
+// getExitCodeFromError はエラーから適切な終了コードを取得する
+func (app *CLIApp) getExitCodeFromError(err error) int {
+	if gaErr, ok := err.(*errors.GAError); ok {
+		switch gaErr.Type {
+		case errors.AuthError:
+			return 1 // 認証エラー
+		case errors.ConfigError:
+			return 2 // 設定エラー
+		case errors.APIError:
+			return 1 // APIエラー
+		case errors.OutputError:
+			return 1 // 出力エラー
+		default:
+			return 1 // その他のエラー
+		}
+	}
+	return 1 // 一般的なエラー
+}
+
 // Run はCLIアプリケーションのメインエントリーポイント
-func (app *CLIApp) Run(ctx context.Context, args []string) error {
+// 適切な終了コードを返す（0: 成功, 1: 一般的なエラー, 2: 使用方法エラー）
+func (app *CLIApp) Run(ctx context.Context, args []string) int {
 	options, err := app.parseArgs(args)
 	if err != nil {
-		return err
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 2 // 使用方法エラー
+	}
+
+	// parseArgsがnilを返した場合（ヘルプ表示など）
+	if options == nil {
+		return 0
 	}
 
 	// ヘルプオプションの処理
 	if options.Help {
 		app.showHelp()
-		return nil
+		return 0
 	}
 
 	// バージョンオプションの処理
 	if options.Version {
 		app.showVersion()
-		return nil
+		return 0
 	}
 
 	// ログインオプションの処理
 	if options.Login {
-		return app.handleLogin(ctx)
+		if err := app.handleLogin(ctx); err != nil {
+			exitCode := app.getExitCodeFromError(err)
+			fmt.Fprintf(os.Stderr, "認証エラー: %v\n", err)
+			return exitCode
+		}
+		return 0
 	}
 
 	// デフォルト動作: データ取得
-	return app.handleDataRetrieval(ctx, options)
+	if err := app.handleDataRetrieval(ctx, options); err != nil {
+		exitCode := app.getExitCodeFromError(err)
+		fmt.Fprintf(os.Stderr, "データ取得エラー: %v\n", err)
+		return exitCode
+	}
+
+	return 0
 }
 
 // parseArgs はコマンドライン引数を解析してCLIOptionsを返す
@@ -88,6 +148,11 @@ func (app *CLIApp) parseArgs(args []string) (*CLIOptions, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("無効なオプションが指定されました: %v\n\n使用方法については 'ga --help' を実行してください", err)
+	}
+
+	// 設定ファイルパスの検証
+	if options.ConfigPath == "" {
+		return nil, fmt.Errorf("設定ファイルパスが指定されていません")
 	}
 
 	return options, nil
@@ -123,21 +188,77 @@ func (app *CLIApp) showVersion() {
 
 // handleLogin はログイン処理を実行する
 func (app *CLIApp) handleLogin(ctx context.Context) error {
-	// TODO: 認証サービスの実装後に実装
 	fmt.Println("OAuth認証を開始します...")
-	return fmt.Errorf("認証機能は未実装です")
+
+	// 認証サービスが未実装の場合の処理
+	if app.authService == nil {
+		return fmt.Errorf("認証サービスが初期化されていません。認証機能は未実装です")
+	}
+
+	// 認証処理を実行
+	if err := app.authService.Login(ctx); err != nil {
+		return fmt.Errorf("OAuth認証に失敗しました: %w", err)
+	}
+
+	fmt.Println("OAuth認証が完了しました")
+	return nil
 }
 
 // handleDataRetrieval はデータ取得処理を実行する
 func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions) error {
-	// TODO: データ取得機能の実装後に実装
-	fmt.Printf("設定ファイル '%s' を使用してデータを取得します...\n", options.ConfigPath)
-	if options.OutputPath != "" {
-		fmt.Printf("結果を '%s' に出力します\n", options.OutputPath)
-	} else {
-		fmt.Println("結果を標準出力に出力します")
+	if options.Debug {
+		fmt.Printf("[DEBUG] 設定ファイル: %s\n", options.ConfigPath)
+		fmt.Printf("[DEBUG] 出力先: %s\n", options.OutputPath)
 	}
-	return fmt.Errorf("データ取得機能は未実装です")
+
+	fmt.Printf("設定ファイル '%s' を使用してデータを取得します...\n", options.ConfigPath)
+
+	// 設定ファイルの存在確認
+	if _, err := os.Stat(options.ConfigPath); os.IsNotExist(err) {
+		return fmt.Errorf("設定ファイル '%s' が見つかりません", options.ConfigPath)
+	}
+
+	// サービスが未実装の場合の処理
+	if app.configService == nil || app.analyticsService == nil || app.outputService == nil {
+		if options.OutputPath != "" {
+			fmt.Printf("結果を '%s' に出力します\n", options.OutputPath)
+		} else {
+			fmt.Println("結果を標準出力に出力します")
+		}
+		return fmt.Errorf("データ取得機能は未実装です。必要なサービスが初期化されていません")
+	}
+
+	// 設定ファイルの読み込み
+	config, err := app.configService.LoadConfig(options.ConfigPath)
+	if err != nil {
+		return fmt.Errorf("設定ファイルの読み込みに失敗しました: %w", err)
+	}
+
+	// 設定の検証
+	if err := app.configService.ValidateConfig(config); err != nil {
+		return fmt.Errorf("設定ファイルの検証に失敗しました: %w", err)
+	}
+
+	// データ取得
+	reportData, err := app.analyticsService.GetReportData(ctx, config)
+	if err != nil {
+		return fmt.Errorf("データ取得に失敗しました: %w", err)
+	}
+
+	// データ出力
+	if options.OutputPath != "" {
+		if err := app.outputService.WriteToFile(reportData, options.OutputPath); err != nil {
+			return fmt.Errorf("ファイル出力に失敗しました: %w", err)
+		}
+		fmt.Printf("結果を '%s' に出力しました\n", options.OutputPath)
+	} else {
+		if err := app.outputService.WriteToConsole(reportData); err != nil {
+			return fmt.Errorf("標準出力に失敗しました: %w", err)
+		}
+	}
+
+	fmt.Printf("データ取得が完了しました。取得レコード数: %d\n", reportData.Summary.TotalRows)
+	return nil
 }
 
 // CLIOptions はコマンドライン引数を表す構造体
