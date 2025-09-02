@@ -1,0 +1,44 @@
+# Google Analytics 4 設定ファイル例
+# このファイルをga.yamlとしてコピーして使用してください
+
+# 集計期間
+start_date: "2023-01-01"  # 集計開始日 (YYYY-MM-DD形式)
+end_date: "2023-01-31"    # 集計終了日 (YYYY-MM-DD形式)
+
+# Google Analytics アカウント情報
+account: "123456789"      # アカウントID (数字のみ)
+
+# プロパティとストリーム設定
+properties:
+  - property: "987654321"  # プロパティID (数字のみ)
+    streams:
+      - stream: "1234567"  # ストリームID (数字のみ)
+        dimensions:        # 取得するディメンション
+          - "date"
+          - "pagePath"
+        metrics:           # 取得するメトリクス
+          - "sessions"                    # セッション数
+          - "activeUsers"                 # アクティブユーザー数
+          - "newUsers"                    # 新規ユーザー数
+          - "averageSessionDuration"      # セッションあたりの平均エンゲージメント時間
+
+# 複数のプロパティを設定する場合の例:
+# properties:
+#   - property: "987654321"
+#     streams:
+#       - stream: "1234567"
+#         dimensions:
+#           - "date"
+#           - "pagePath"
+#         metrics:
+#           - "sessions"
+#           - "activeUsers"
+#   - property: "111222333"
+#     streams:
+#       - stream: "7654321"
+#         dimensions:
+#           - "date"
+#           - "pagePath"
+#         metrics:
+#           - "newUsers"
+#           - "averageSessionDuration"
