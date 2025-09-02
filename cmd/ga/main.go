@@ -46,13 +46,18 @@ func NewCLIApp() *CLIApp {
 
 // initializeServices はサービスを初期化する
 func (app *CLIApp) initializeServices() error {
-	// 出力サービスは実装済みなので初期化
+	// 出力サービスを初期化
 	app.outputService = output.NewOutputService()
 
-	// TODO: 他のサービスの実装後に初期化処理を追加
-	// app.authService = auth.NewAuthService()
-	// app.configService = config.NewConfigService()
-	// app.analyticsService = analytics.NewAnalyticsService()
+	// 設定サービスを初期化
+	app.configService = config.NewConfigService()
+
+	// 認証サービスは動的に初期化（OAuth設定が必要なため）
+	// app.authService は handleLogin や handleDataRetrieval で初期化される
+
+	// 分析サービスは認証後に初期化される
+	// app.analyticsService は handleDataRetrieval で初期化される
+
 	return nil
 }
 
@@ -192,10 +197,15 @@ func (app *CLIApp) showVersion() {
 func (app *CLIApp) handleLogin(ctx context.Context) error {
 	fmt.Println("OAuth認証を開始します...")
 
-	// 認証サービスが未実装の場合の処理
-	if app.authService == nil {
-		return fmt.Errorf("認証サービスが初期化されていません。認証機能は未実装です")
+	// 認証サービスを初期化（環境変数からOAuth設定を取得）
+	clientID := os.Getenv("GA_CLIENT_ID")
+	clientSecret := os.Getenv("GA_CLIENT_SECRET")
+
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("OAuth認証に必要な環境変数が設定されていません。GA_CLIENT_ID と GA_CLIENT_SECRET を設定してください")
 	}
+
+	app.authService = auth.NewGoogleAnalyticsAuthService(clientID, clientSecret)
 
 	// 認証処理を実行
 	if err := app.authService.Login(ctx); err != nil {
@@ -220,16 +230,6 @@ func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions)
 		return fmt.Errorf("設定ファイル '%s' が見つかりません", options.ConfigPath)
 	}
 
-	// サービスが未実装の場合の処理
-	if app.configService == nil || app.analyticsService == nil {
-		if options.OutputPath != "" {
-			fmt.Printf("結果を '%s' に出力します\n", options.OutputPath)
-		} else {
-			fmt.Println("結果を標準出力に出力します")
-		}
-		return fmt.Errorf("データ取得機能は未実装です。設定サービスと分析サービスが初期化されていません")
-	}
-
 	// 設定ファイルの読み込み
 	config, err := app.configService.LoadConfig(options.ConfigPath)
 	if err != nil {
@@ -241,13 +241,35 @@ func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions)
 		return fmt.Errorf("設定ファイルの検証に失敗しました: %w", err)
 	}
 
+	// 認証サービスを初期化（環境変数からOAuth設定を取得）
+	clientID := os.Getenv("GA_CLIENT_ID")
+	clientSecret := os.Getenv("GA_CLIENT_SECRET")
+
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("OAuth認証に必要な環境変数が設定されていません。GA_CLIENT_ID と GA_CLIENT_SECRET を設定してください")
+	}
+
+	app.authService = auth.NewGoogleAnalyticsAuthService(clientID, clientSecret)
+
+	// 認証トークンを取得
+	token, err := app.authService.GetCredentials(ctx)
+	if err != nil {
+		return fmt.Errorf("認証トークンの取得に失敗しました。'ga --login' で認証を行ってください: %w", err)
+	}
+
+	// 分析サービスを初期化
+	app.analyticsService, err = analytics.NewAnalyticsService(ctx, token, config)
+	if err != nil {
+		return fmt.Errorf("分析サービスの初期化に失敗しました: %w", err)
+	}
+
 	// データ取得
 	reportData, err := app.analyticsService.GetReportData(ctx, config)
 	if err != nil {
 		return fmt.Errorf("データ取得に失敗しました: %w", err)
 	}
 
-	// データ出力（新しいWriteOutputメソッドを使用）
+	// データ出力
 	if err := app.outputService.WriteOutput(reportData, options.OutputPath); err != nil {
 		return fmt.Errorf("データ出力に失敗しました: %w", err)
 	}
