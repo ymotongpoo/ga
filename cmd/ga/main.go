@@ -46,11 +46,13 @@ func NewCLIApp() *CLIApp {
 
 // initializeServices はサービスを初期化する
 func (app *CLIApp) initializeServices() error {
-	// TODO: 各サービスの実装後に初期化処理を追加
+	// 出力サービスは実装済みなので初期化
+	app.outputService = output.NewOutputService()
+
+	// TODO: 他のサービスの実装後に初期化処理を追加
 	// app.authService = auth.NewAuthService()
 	// app.configService = config.NewConfigService()
 	// app.analyticsService = analytics.NewAnalyticsService()
-	// app.outputService = output.NewOutputService()
 	return nil
 }
 
@@ -219,13 +221,13 @@ func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions)
 	}
 
 	// サービスが未実装の場合の処理
-	if app.configService == nil || app.analyticsService == nil || app.outputService == nil {
+	if app.configService == nil || app.analyticsService == nil {
 		if options.OutputPath != "" {
 			fmt.Printf("結果を '%s' に出力します\n", options.OutputPath)
 		} else {
 			fmt.Println("結果を標準出力に出力します")
 		}
-		return fmt.Errorf("データ取得機能は未実装です。必要なサービスが初期化されていません")
+		return fmt.Errorf("データ取得機能は未実装です。設定サービスと分析サービスが初期化されていません")
 	}
 
 	// 設定ファイルの読み込み
@@ -245,16 +247,9 @@ func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions)
 		return fmt.Errorf("データ取得に失敗しました: %w", err)
 	}
 
-	// データ出力
-	if options.OutputPath != "" {
-		if err := app.outputService.WriteToFile(reportData, options.OutputPath); err != nil {
-			return fmt.Errorf("ファイル出力に失敗しました: %w", err)
-		}
-		fmt.Printf("結果を '%s' に出力しました\n", options.OutputPath)
-	} else {
-		if err := app.outputService.WriteToConsole(reportData); err != nil {
-			return fmt.Errorf("標準出力に失敗しました: %w", err)
-		}
+	// データ出力（新しいWriteOutputメソッドを使用）
+	if err := app.outputService.WriteOutput(reportData, options.OutputPath); err != nil {
+		return fmt.Errorf("データ出力に失敗しました: %w", err)
 	}
 
 	fmt.Printf("データ取得が完了しました。取得レコード数: %d\n", reportData.Summary.TotalRows)
