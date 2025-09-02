@@ -1,0 +1,88 @@
+# Requirements Document
+
+## Introduction
+
+Google Analytics 4 (GA4) を使用して、WebサイトのURLごとのトラッキングデータを取得・分析するためのGoコマンドラインツールです。このツールは、セッション数、アクティブユーザー数、新規ユーザー数、セッションあたりの平均エンゲージメント時間を取得し、CSV形式で出力します。
+
+## Requirements
+
+### Requirement 1: Google Analytics API認証
+
+**User Story:** 分析担当者として、Google Analytics 4のデータにアクセスするために、OAuth認証を通じてAPIクレデンシャルを取得したい。
+
+#### Acceptance Criteria
+
+1. WHEN ユーザーが `ga --login` コマンドを実行する THEN システムは OAuth認証フローを開始する SHALL
+2. WHEN OAuth認証が成功する THEN システムは認証トークンをローカルに安全に保存する SHALL
+3. IF 認証が失敗する THEN システムは適切なエラーメッセージを表示する SHALL
+4. WHEN 認証トークンが期限切れになる THEN システムは自動的にトークンを更新する SHALL
+
+### Requirement 2: YAML設定ファイル処理
+
+**User Story:** データアナリストとして、柔軟にデータ取得条件を設定するために、YAML形式の設定ファイルを使用したい。
+
+#### Acceptance Criteria
+
+1. WHEN システムが起動する THEN `ga.yaml` ファイルを読み込む SHALL
+2. IF `ga.yaml` ファイルが存在しない THEN システムは適切なエラーメッセージを表示する SHALL
+3. WHEN 設定ファイルに不正な形式が含まれる THEN システムは詳細なエラーメッセージを表示する SHALL
+4. WHEN 設定ファイルが読み込まれる THEN 以下の項目を検証する SHALL:
+   - start_date（集計開始日）
+   - end_date（集計終了日）
+   - account（アカウントID）
+   - property（プロパティID）
+   - stream（ストリームID）
+   - dimensions（ディメンションリスト）
+   - metrics（メトリクスリスト）
+
+### Requirement 3: Google Analytics 4データ取得
+
+**User Story:** マーケティング担当者として、指定した期間とURLに対するトラッキングデータを取得したい。
+
+#### Acceptance Criteria
+
+1. WHEN 有効な設定ファイルが提供される THEN システムはGoogle Analytics 4 APIに接続する SHALL
+2. WHEN APIリクエストが成功する THEN システムは以下のメトリクスを取得する SHALL:
+   - セッション数（sessions）
+   - アクティブユーザー数（activeUsers）
+   - 新規ユーザー数（newUsers）
+   - セッションあたりの平均エンゲージメント時間（engagementRateDuration）
+3. WHEN APIリクエストが失敗する THEN システムは適切なエラーメッセージとリトライ機能を提供する SHALL
+4. WHEN データ取得が完了する THEN システムは取得したレコード数を表示する SHALL
+5. WHEN 複数のプロパティが設定されている THEN システムは各プロパティのデータを個別に取得する SHALL
+
+### Requirement 4: CSV出力機能
+
+**User Story:** データアナリストとして、取得したデータを他のツールで分析するために、CSV形式で出力したい。
+
+#### Acceptance Criteria
+
+1. WHEN データ取得が完了する THEN システムはCSV形式でデータを出力する SHALL
+2. WHEN CSV出力が実行される THEN ヘッダー行を含む適切な形式で出力する SHALL
+3. WHEN 出力先が指定されない THEN システムは標準出力にデータを出力する SHALL
+4. IF 出力ファイルが指定される THEN システムは指定されたファイルにデータを保存する SHALL
+5. WHEN 日本語データが含まれる THEN システムはUTF-8エンコーディングで出力する SHALL
+
+### Requirement 5: エラーハンドリングとログ
+
+**User Story:** 開発者として、問題が発生した際に適切な診断情報を得るために、詳細なエラーメッセージとログ機能が欲しい。
+
+#### Acceptance Criteria
+
+1. WHEN エラーが発生する THEN システムは分かりやすいエラーメッセージを表示する SHALL
+2. WHEN API制限に達する THEN システムは適切な待機時間を設けてリトライする SHALL
+3. WHEN ネットワークエラーが発生する THEN システムは接続の再試行を行う SHALL
+4. IF デバッグモードが有効になっている THEN システムは詳細なログ情報を出力する SHALL
+5. WHEN 致命的なエラーが発生する THEN システムは適切な終了コード（非ゼロ）で終了する SHALL
+
+### Requirement 6: コマンドラインインターフェース
+
+**User Story:** ユーザーとして、直感的で使いやすいコマンドラインインターフェースを通じてツールを操作したい。
+
+#### Acceptance Criteria
+
+1. WHEN ユーザーが `ga --help` を実行する THEN システムは使用方法を表示する SHALL
+2. WHEN ユーザーが `ga --version` を実行する THEN システムはバージョン情報を表示する SHALL
+3. WHEN ユーザーが `ga` を実行する THEN システムは `ga.yaml` を使用してデータ取得を開始する SHALL
+4. WHEN 無効なオプションが指定される THEN システムは適切なエラーメッセージとヘルプ情報を表示する SHALL
+5. WHEN ユーザーが設定ファイルパスを指定する THEN システムは `--config` オプションでカスタム設定ファイルを受け入れる SHALL
