@@ -1,3 +1,17 @@
+// Copyright 2025 Yoshi Yamaguchi
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package errors
 
 import (
@@ -48,7 +62,7 @@ type GAError struct {
 	Type    ErrorType
 	Message string
 	Cause   error
-	Code    string // エラーコード（例: "AUTH001", "CONFIG002"）
+	Code    string                 // エラーコード（例: "AUTH001", "CONFIG002"）
 	Context map[string]interface{} // 追加のコンテキスト情報
 }
 
@@ -103,8 +117,8 @@ func (e *GAError) WithContext(key string, value interface{}) *GAError {
 // 標準化されたエラーメッセージ
 var (
 	// 認証関連のエラーメッセージ
-	AuthTokenExpired    = "認証トークンの有効期限が切れています"
-	AuthTokenInvalid    = "認証トークンが無効です"
+	AuthTokenExpired       = "認証トークンの有効期限が切れています"
+	AuthTokenInvalid       = "認証トークンが無効です"
 	AuthCredentialsMissing = "認証情報が見つかりません"
 
 	// 設定関連のエラーメッセージ
@@ -123,7 +137,7 @@ var (
 
 	// ネットワーク関連のエラーメッセージ
 	NetworkConnectionFailed = "ネットワーク接続に失敗しました"
-	NetworkTimeout         = "ネットワークタイムアウトが発生しました"
+	NetworkTimeout          = "ネットワークタイムアウトが発生しました"
 
 	// バリデーション関連のエラーメッセージ
 	ValidationDateInvalid = "日付形式が正しくありません"

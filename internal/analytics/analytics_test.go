@@ -1,3 +1,17 @@
+// Copyright 2025 Yoshi Yamaguchi
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package analytics
 
 import (
@@ -124,7 +138,7 @@ func TestNewGA4Client(t *testing.T) {
 
 func TestMetricMapping(t *testing.T) {
 	expectedMappings := map[string]string{
-		"sessions":                "sessions",
+		"sessions":               "sessions",
 		"activeUsers":            "activeUsers",
 		"newUsers":               "newUsers",
 		"averageSessionDuration": "averageSessionDuration",
@@ -168,9 +182,9 @@ func TestGA4Client_isRetryableError(t *testing.T) {
 	client := &GA4Client{retryConfig: DefaultRetryConfig}
 
 	tests := []struct {
-		name  string
-		err   error
-		want  bool
+		name string
+		err  error
+		want bool
 	}{
 		{
 			name: "429 Too Many Requests",
@@ -237,9 +251,9 @@ func TestGA4Client_classifyError(t *testing.T) {
 	client := &GA4Client{}
 
 	tests := []struct {
-		name    string
-		err     error
-		context string
+		name     string
+		err      error
+		context  string
 		wantType string
 	}{
 		{
@@ -284,8 +298,8 @@ func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr ||
 		(len(s) > len(substr) &&
 			(s[:len(substr)] == substr ||
-			 s[len(s)-len(substr):] == substr ||
-			 containsSubstring(s, substr))))
+				s[len(s)-len(substr):] == substr ||
+				containsSubstring(s, substr))))
 }
 
 func containsSubstring(s, substr string) bool {
