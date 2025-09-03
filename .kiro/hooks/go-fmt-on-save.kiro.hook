@@ -1,16 +1,16 @@
 {
   "enabled": true,
-  "name": "Format and lint on Save",
+  "name": "FormatとLint",
   "description": "Automatically runs go fmt to format Go code whenever .go files are saved",
   "version": "1",
   "when": {
-    "type": "fileEdited",
+    "type": "userTriggered",
     "patterns": [
       "**/*.go"
     ]
   },
   "then": {
     "type": "askAgent",
-    "prompt": "A Go file has been saved. Please run 'go fmt' on the saved file to ensure proper Go code formatting according to the project's coding standards."
+    "prompt": "トリガーされたら次のコマンドを実行してください\n\n* go fmt **/*\n* go vet **/*"
   }
 }
