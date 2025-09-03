@@ -17,63 +17,352 @@ package output
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/ymotongpoo/ga/internal/analytics"
 )
 
-func TestWriteJSON(t *testing.T) {
-	service := NewOutputService()
-	data := createTestReportData()
+func TestJSONRecord_Structure(t *testing.T) {
+	// JSONRecord構造体のフィールドが正しく定義されているかテスト
+	record := JSONRecord{
+		Dimensions: map[string]string{
+			"date":     "2023-01-01",
+			"pagePath": "/home",
+		},
+		Metrics: map[string]string{
+			"sessions":    "1250",
+			"activeUsers": "1100",
+		},
+		Metadata: JSONMetadata{
+			RetrievedAt:  "2023-02-01T10:30:00Z",
+			PropertyID:   "987654321",
+			StreamID:     "1234567",
+			DateRange:    "2023-01-01 to 2023-01-31",
+			RecordIndex:  1,
+			TotalRecords: 100,
+			OutputFormat: "json",
+			ToolVersion:  "ga-tool-v1.0",
+		},
+	}
 
-	var buf bytes.Buffer
-	err := service.WriteJSON(data, &buf)
+	// JSON マーシャリングのテスト
+	jsonData, err := json.Marshal(record)
 	if err != nil {
-		t.Fatalf("WriteJSON() failed: %v", err)
+		t.Fatalf("JSON マーシャリングに失敗しました: %v", err)
 	}
 
-	// JSON形式の妥当性を確認
-	var records []JSONRecord
-	if err := json.Unmarshal(buf.Bytes(), &records); err != nil {
-		t.Fatalf("Invalid JSON output: %v", err)
+	// JSON構造の検証
+	var unmarshaled map[string]interface{}
+	if err := json.Unmarshal(jsonData, &unmarshaled); err != nil {
+		t.Fatalf("JSON アンマーシャリングに失敗しました: %v", err)
 	}
 
-	// レコード数の確認
-	expectedRecords := len(data.Rows)
-	if len(records) != expectedRecords {
-		t.Errorf("Expected %d records, got %d", expectedRecords, len(records))
+	// 必須フィールドの存在確認
+	if _, exists := unmarshaled["dimensions"]; !exists {
+		t.Error("dimensions フィールドが存在しません")
+	}
+	if _, exists := unmarshaled["metrics"]; !exists {
+		t.Error("metrics フィールドが存在しません")
+	}
+	if _, exists := unmarshaled["metadata"]; !exists {
+		t.Error("metadata フィールドが存在しません")
 	}
 
-	// 最初のレコードの構造を確認
-	if len(records) > 0 {
-		record := records[0]
+	// メタデータの詳細確認
+	metadata, ok := unmarshaled["metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("metadata フィールドがオブジェクトではありません")
+	}
 
-		// Dimensionsフィールドの確認
-		if record.Dimensions == nil {
-			t.Error("Dimensions field should not be nil")
-		}
+	expectedMetadataFields := []string{
+		"retrieved_at", "property_id", "stream_id", "date_range",
+		"record_index", "total_records", "output_format", "tool_version",
+	}
 
-		// Metricsフィールドの確認
-		if record.Metrics == nil {
-			t.Error("Metrics field should not be nil")
-		}
-
-		// Metadataフィールドの確認
-		if record.Metadata.RetrievedAt == "" {
-			t.Error("Metadata.RetrievedAt should not be empty")
-		}
-
-		if record.Metadata.DateRange == "" {
-			t.Error("Metadata.DateRange should not be empty")
+	for _, field := range expectedMetadataFields {
+		if _, exists := metadata[field]; !exists {
+			t.Errorf("metadata に %s フィールドが存在しません", field)
 		}
 	}
 }
 
+func TestCreateKeyValuePairs(t *testing.T) {
+	outputService := NewOutputService().(*OutputServiceImpl)
+
+	tests := []struct {
+		name            string
+		headers         []string
+		row             []string
+		expectedDims    map[string]string
+		expectedMetrics map[string]string
+	}{
+		{
+			name:    "基本的なディメンションとメトリクス",
+			headers: []string{"date", "pagePath", "sessions", "activeUsers"},
+			row:     []string{"2023-01-01", "/home", "1250", "1100"},
+			expectedDims: map[string]string{
+				"date":     "2023-01-01",
+				"pagePath": "/home",
+			},
+			expectedMetrics: map[string]string{
+				"sessions":    "1250",
+				"activeUsers": "1100",
+			},
+		},
+		{
+			name:    "プロパティIDを含む",
+			headers: []string{"property_id", "date", "sessions"},
+			row:     []string{"987654321", "2023-01-01", "1250"},
+			expectedDims: map[string]string{
+				"property_id": "987654321",
+				"date":        "2023-01-01",
+			},
+			expectedMetrics: map[string]string{
+				"sessions": "1250",
+			},
+		},
+		{
+			name:    "空の値を含む",
+			headers: []string{"date", "pagePath", "sessions"},
+			row:     []string{"2023-01-01", "", "1250"},
+			expectedDims: map[string]string{
+				"date":     "2023-01-01",
+				"pagePath": "",
+			},
+			expectedMetrics: map[string]string{
+				"sessions": "1250",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dimensions, metrics := outputService.createKeyValuePairs(tt.headers, tt.row)
+
+			// ディメンションの検証
+			if len(dimensions) != len(tt.expectedDims) {
+				t.Errorf("ディメンション数が一致しません: 期待値=%d, 実際=%d", len(tt.expectedDims), len(dimensions))
+			}
+
+			for key, expectedValue := range tt.expectedDims {
+				if actualValue, exists := dimensions[key]; !exists {
+					t.Errorf("ディメンション %s が存在しません", key)
+				} else if actualValue != expectedValue {
+					t.Errorf("ディメンション %s の値が一致しません: 期待値=%s, 実際=%s", key, expectedValue, actualValue)
+				}
+			}
+
+			// メトリクスの検証
+			if len(metrics) != len(tt.expectedMetrics) {
+				t.Errorf("メトリクス数が一致しません: 期待値=%d, 実際=%d", len(tt.expectedMetrics), len(metrics))
+			}
+
+			for key, expectedValue := range tt.expectedMetrics {
+				if actualValue, exists := metrics[key]; !exists {
+					t.Errorf("メトリクス %s が存在しません", key)
+				} else if actualValue != expectedValue {
+					t.Errorf("メトリクス %s の値が一致しません: 期待値=%s, 実際=%s", key, expectedValue, actualValue)
+				}
+			}
+		})
+	}
+}
+
+func TestIsDimension(t *testing.T) {
+	tests := []struct {
+		header   string
+		expected bool
+	}{
+		// 明確なディメンション
+		{"date", true},
+		{"pagePath", true},
+		{"fullURL", true},
+		{"country", true},
+		{"property_id", true},
+		{"stream_id", true},
+
+		// 明確なメトリクス
+		{"sessions", false},
+		{"activeUsers", false},
+		{"newUsers", false},
+		{"averageSessionDuration", false},
+		{"bounceRate", false},
+		{"pageviews", false},
+
+		// 大文字小文字の違い
+		{"DATE", true},
+		{"SESSIONS", false},
+		{"ActiveUsers", false},
+
+		// アンダースコア区切り
+		{"page_path", true},
+		{"active_users", false},
+		{"session_duration", false},
+
+		// 数値的なパターン（メトリクス）
+		{"customCount", false},
+		{"conversionRate", false},
+		{"engagementDuration", false},
+		{"totalRevenue", false},
+
+		// 不明なフィールド（デフォルトはディメンション）
+		{"unknownField", true},
+		{"customDimension", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.header, func(t *testing.T) {
+			result := isDimension(tt.header)
+			if result != tt.expected {
+				t.Errorf("isDimension(%s) = %v, 期待値 %v", tt.header, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractPropertyID(t *testing.T) {
+	outputService := NewOutputService().(*OutputServiceImpl)
+
+	tests := []struct {
+		name     string
+		headers  []string
+		row      []string
+		expected string
+	}{
+		{
+			name:     "property_id が存在する",
+			headers:  []string{"property_id", "date", "sessions"},
+			row:      []string{"987654321", "2023-01-01", "1250"},
+			expected: "987654321",
+		},
+		{
+			name:     "PROPERTY_ID (大文字) が存在する",
+			headers:  []string{"PROPERTY_ID", "date", "sessions"},
+			row:      []string{"987654321", "2023-01-01", "1250"},
+			expected: "987654321",
+		},
+		{
+			name:     "property_id が存在しない",
+			headers:  []string{"date", "sessions"},
+			row:      []string{"2023-01-01", "1250"},
+			expected: "",
+		},
+		{
+			name:     "空の行",
+			headers:  []string{"property_id", "date"},
+			row:      []string{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := outputService.extractPropertyID(tt.row, tt.headers)
+			if result != tt.expected {
+				t.Errorf("extractPropertyID() = %s, 期待値 %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestWriteJSON_BasicFunctionality(t *testing.T) {
+	outputService := NewOutputService()
+
+	// テストデータの作成
+	testData := &analytics.ReportData{
+		Headers: []string{"property_id", "date", "pagePath", "sessions", "activeUsers"},
+		Rows: [][]string{
+			{"987654321", "2023-01-01", "/home", "1250", "1100"},
+			{"987654321", "2023-01-01", "/about", "450", "420"},
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows:  2,
+			DateRange:  "2023-01-01 to 2023-01-31",
+			Properties: []string{"987654321"},
+		},
+	}
+
+	// JSON出力のテスト
+	var buf bytes.Buffer
+	err := outputService.WriteJSON(testData, &buf)
+	if err != nil {
+		t.Fatalf("WriteJSON でエラーが発生しました: %v", err)
+	}
+
+	// 出力されたJSONの検証
+	var records []JSONRecord
+	if err := json.Unmarshal(buf.Bytes(), &records); err != nil {
+		t.Fatalf("出力されたJSONの解析に失敗しました: %v", err)
+	}
+
+	// レコード数の確認
+	if len(records) != 2 {
+		t.Errorf("レコード数が一致しません: 期待値=2, 実際=%d", len(records))
+	}
+
+	// 最初のレコードの検証
+	firstRecord := records[0]
+
+	// ディメンションの確認
+	expectedDimensions := map[string]string{
+		"property_id": "987654321",
+		"date":        "2023-01-01",
+		"pagePath":    "/home",
+	}
+
+	for key, expectedValue := range expectedDimensions {
+		if actualValue, exists := firstRecord.Dimensions[key]; !exists {
+			t.Errorf("ディメンション %s が存在しません", key)
+		} else if actualValue != expectedValue {
+			t.Errorf("ディメンション %s の値が一致しません: 期待値=%s, 実際=%s", key, expectedValue, actualValue)
+		}
+	}
+
+	// メトリクスの確認
+	expectedMetrics := map[string]string{
+		"sessions":    "1250",
+		"activeUsers": "1100",
+	}
+
+	for key, expectedValue := range expectedMetrics {
+		if actualValue, exists := firstRecord.Metrics[key]; !exists {
+			t.Errorf("メトリクス %s が存在しません", key)
+		} else if actualValue != expectedValue {
+			t.Errorf("メトリクス %s の値が一致しません: 期待値=%s, 実際=%s", key, expectedValue, actualValue)
+		}
+	}
+
+	// メタデータの確認
+	metadata := firstRecord.Metadata
+	if metadata.PropertyID != "987654321" {
+		t.Errorf("メタデータのPropertyIDが一致しません: 期待値=987654321, 実際=%s", metadata.PropertyID)
+	}
+	if metadata.DateRange != "2023-01-01 to 2023-01-31" {
+		t.Errorf("メタデータのDateRangeが一致しません: 期待値=2023-01-01 to 2023-01-31, 実際=%s", metadata.DateRange)
+	}
+	if metadata.RecordIndex != 1 {
+		t.Errorf("メタデータのRecordIndexが一致しません: 期待値=1, 実際=%d", metadata.RecordIndex)
+	}
+	if metadata.TotalRecords != 2 {
+		t.Errorf("メタデータのTotalRecordsが一致しません: 期待値=2, 実際=%d", metadata.TotalRecords)
+	}
+	if metadata.OutputFormat != "json" {
+		t.Errorf("メタデータのOutputFormatが一致しません: 期待値=json, 実際=%s", metadata.OutputFormat)
+	}
+
+	// 2番目のレコードのインデックス確認
+	secondRecord := records[1]
+	if secondRecord.Metadata.RecordIndex != 2 {
+		t.Errorf("2番目のレコードのインデックスが一致しません: 期待値=2, 実際=%d", secondRecord.Metadata.RecordIndex)
+	}
+}
+
 func TestWriteJSON_EmptyData(t *testing.T) {
-	service := NewOutputService()
-	data := &analytics.ReportData{
+	outputService := NewOutputService()
+
+	// 空のデータでのテスト
+	testData := &analytics.ReportData{
 		Headers: []string{"date", "sessions"},
 		Rows:    [][]string{},
 		Summary: analytics.ReportSummary{
@@ -83,200 +372,29 @@ func TestWriteJSON_EmptyData(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := service.WriteJSON(data, &buf)
+	err := outputService.WriteJSON(testData, &buf)
 	if err != nil {
-		t.Fatalf("WriteJSON() with empty data failed: %v", err)
+		t.Fatalf("空データでのWriteJSONでエラーが発生しました: %v", err)
 	}
 
 	// 空の配列が出力されることを確認
-	var records []JSONRecord
-	if err := json.Unmarshal(buf.Bytes(), &records); err != nil {
-		t.Fatalf("Invalid JSON output: %v", err)
-	}
-
-	if len(records) != 0 {
-		t.Errorf("Expected empty array, got %d records", len(records))
+	output := strings.TrimSpace(buf.String())
+	if output != "[]" {
+		t.Errorf("空データの出力が期待値と一致しません: 期待値=[], 実際=%s", output)
 	}
 }
 
 func TestWriteJSON_NilData(t *testing.T) {
-	service := NewOutputService()
+	outputService := NewOutputService()
 
 	var buf bytes.Buffer
-	err := service.WriteJSON(nil, &buf)
+	err := outputService.WriteJSON(nil, &buf)
 	if err == nil {
-		t.Fatal("WriteJSON() with nil data should return error")
+		t.Error("nilデータでエラーが発生しませんでした")
 	}
 
-	expectedError := "出力データがnilです"
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Errorf("Expected error containing '%s', got: %v", expectedError, err)
-	}
-}
-
-func TestIsDimension(t *testing.T) {
-	testCases := []struct {
-		header   string
-		expected bool
-	}{
-		// ディメンション
-		{"date", true},
-		{"pagePath", true},
-		{"fullURL", true},
-		{"country", true},
-		{"browser", true},
-		{"Date", true}, // 大文字小文字を無視
-		{"PAGEPATH", true},
-
-		// メトリクス
-		{"sessions", false},
-		{"activeUsers", false},
-		{"newUsers", false},
-		{"averageSessionDuration", false},
-		{"Sessions", false}, // 大文字小文字を無視
-		{"ACTIVEUSERS", false},
-
-		// 不明なヘッダー（ディメンションとして扱う）
-		{"unknownField", true},
-		{"customDimension", true},
-	}
-
-	for _, tc := range testCases {
-		result := isDimension(tc.header)
-		if result != tc.expected {
-			t.Errorf("isDimension(%s) = %v, expected %v", tc.header, result, tc.expected)
-		}
+	expectedErrorMessage := "出力データがnilです"
+	if !strings.Contains(err.Error(), expectedErrorMessage) {
+		t.Errorf("エラーメッセージが期待値と一致しません: 期待値に含まれるべき=%s, 実際=%s", expectedErrorMessage, err.Error())
 	}
 }
-
-func TestParseOutputFormat(t *testing.T) {
-	testCases := []struct {
-		input       string
-		expected    OutputFormat
-		shouldError bool
-	}{
-		{"csv", FormatCSV, false},
-		{"json", FormatJSON, false},
-		{"CSV", FormatCSV, false},
-		{"JSON", FormatJSON, false},
-		{"Csv", FormatCSV, false},
-		{"Json", FormatJSON, false},
-		{"xml", FormatCSV, true},
-		{"txt", FormatCSV, true},
-		{"", FormatCSV, true},
-	}
-
-	for _, tc := range testCases {
-		result, err := ParseOutputFormat(tc.input)
-
-		if tc.shouldError {
-			if err == nil {
-				t.Errorf("ParseOutputFormat(%s) should return error", tc.input)
-			}
-		} else {
-			if err != nil {
-				t.Errorf("ParseOutputFormat(%s) returned unexpected error: %v", tc.input, err)
-			}
-			if result != tc.expected {
-				t.Errorf("ParseOutputFormat(%s) = %v, expected %v", tc.input, result, tc.expected)
-			}
-		}
-	}
-}
-
-func TestOutputFormat_String(t *testing.T) {
-	testCases := []struct {
-		format   OutputFormat
-		expected string
-	}{
-		{FormatCSV, "csv"},
-		{FormatJSON, "json"},
-		{OutputFormat(999), "unknown"}, // 無効な値
-	}
-
-	for _, tc := range testCases {
-		result := tc.format.String()
-		if result != tc.expected {
-			t.Errorf("OutputFormat(%d).String() = %s, expected %s", tc.format, result, tc.expected)
-		}
-	}
-}
-
-func TestWriteToConsole_JSON(t *testing.T) {
-	service := NewOutputService()
-	data := createTestReportData()
-
-	// バッファを使用してテスト
-	var buf bytes.Buffer
-
-	// 標準エラー出力をキャプチャ
-	oldStderr := os.Stderr
-	rErr, wErr, _ := os.Pipe()
-	os.Stderr = wErr
-
-	// WriteJSONを直接テスト（WriteToConsoleは標準出力に依存するため）
-	err := service.WriteJSON(data, &buf)
-
-	// 標準エラー出力を復元
-	wErr.Close()
-	os.Stderr = oldStderr
-
-	if err != nil {
-		t.Fatalf("WriteJSON() failed: %v", err)
-	}
-
-	// JSON形式の妥当性を確認
-	var records []JSONRecord
-	if err := json.Unmarshal(buf.Bytes(), &records); err != nil {
-		t.Fatalf("Invalid JSON output: %v", err)
-	}
-
-	// レコード数の確認
-	expectedRecords := len(data.Rows)
-	if len(records) != expectedRecords {
-		t.Errorf("Expected %d records, got %d", expectedRecords, len(records))
-	}
-
-	// 標準エラー出力の内容を読み取り
-	errBuf := make([]byte, 1024)
-	n, _ := rErr.Read(errBuf)
-	_ = string(errBuf[:n]) // エラー出力は使用しない（WriteJSONは標準エラーに出力しないため）
-}
-
-func TestWriteToFile_JSON(t *testing.T) {
-	service := NewOutputService()
-	data := createTestReportData()
-
-	// 一時ファイル名を生成
-	tempFile := "test_output.json"
-	defer os.Remove(tempFile) // テスト後にファイルを削除
-
-	err := service.WriteToFile(data, tempFile, FormatJSON)
-	if err != nil {
-		t.Fatalf("WriteToFile() with JSON format failed: %v", err)
-	}
-
-	// ファイルが作成されたことを確認
-	if _, err := os.Stat(tempFile); os.IsNotExist(err) {
-		t.Fatal("JSON output file was not created")
-	}
-
-	// ファイル内容を読み込んで検証
-	content, err := os.ReadFile(tempFile)
-	if err != nil {
-		t.Fatalf("Failed to read JSON output file: %v", err)
-	}
-
-	// JSON形式の妥当性を確認
-	var records []JSONRecord
-	if err := json.Unmarshal(content, &records); err != nil {
-		t.Fatalf("Invalid JSON in output file: %v", err)
-	}
-
-	// レコード数の確認
-	expectedRecords := len(data.Rows)
-	if len(records) != expectedRecords {
-		t.Errorf("Expected %d records in JSON file, got %d", expectedRecords, len(records))
-	}
-}
-

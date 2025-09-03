@@ -86,6 +86,7 @@ type JSONWriter struct {
 }
 
 // JSONRecord はJSON出力用のレコード構造体
+// 要件4.6, 4.12: ディメンションとメトリクスのキー・バリューペア、メタデータを含む
 type JSONRecord struct {
 	Dimensions map[string]string `json:"dimensions"`
 	Metrics    map[string]string `json:"metrics"`
@@ -93,11 +94,16 @@ type JSONRecord struct {
 }
 
 // JSONMetadata はJSON出力用のメタデータ構造体
+// 要件4.12: 取得日時、プロパティ情報などのメタデータを含む
 type JSONMetadata struct {
-	RetrievedAt string `json:"retrieved_at"`
-	PropertyID  string `json:"property_id,omitempty"`
-	StreamID    string `json:"stream_id,omitempty"`
-	DateRange   string `json:"date_range"`
+	RetrievedAt    string `json:"retrieved_at"`
+	PropertyID     string `json:"property_id,omitempty"`
+	StreamID       string `json:"stream_id,omitempty"`
+	DateRange      string `json:"date_range"`
+	RecordIndex    int    `json:"record_index"`
+	TotalRecords   int    `json:"total_records"`
+	OutputFormat   string `json:"output_format"`
+	ToolVersion    string `json:"tool_version,omitempty"`
 }
 
 // OutputServiceImpl はOutputServiceの実装
@@ -154,54 +160,54 @@ func (o *OutputServiceImpl) WriteCSV(data *analytics.ReportData, writer io.Write
 }
 
 // WriteJSON はReportDataをJSON形式でWriterに出力する
+// 要件4.6, 4.9: 構造化されたJSON配列形式で出力、UTF-8エンコーディング対応
 func (o *OutputServiceImpl) WriteJSON(data *analytics.ReportData, writer io.Writer) error {
 	if data == nil {
 		return fmt.Errorf("出力データがnilです")
 	}
 
-	// JSON レコードの配列を作成
-	var records []JSONRecord
+	// JSON レコードの配列を作成（空の場合でも配列として初期化）
+	records := make([]JSONRecord, 0, len(data.Rows))
 
 	// 現在時刻を取得
 	retrievedAt := time.Now().UTC().Format(time.RFC3339)
+	totalRecords := len(data.Rows)
 
 	// 各データ行をJSONレコードに変換
-	for _, row := range data.Rows {
+	for recordIndex, row := range data.Rows {
 		if len(row) != len(data.Headers) {
 			continue // 不正な行はスキップ
 		}
 
+		// ディメンションとメトリクスのキー・バリューペアを作成
+		dimensions, metrics := o.createKeyValuePairs(data.Headers, row)
+
+		// プロパティIDとストリームIDを抽出
+		propertyID := o.extractPropertyID(row, data.Headers)
+		streamID := o.extractStreamID(row, data.Headers)
+
 		record := JSONRecord{
-			Dimensions: make(map[string]string),
-			Metrics:    make(map[string]string),
+			Dimensions: dimensions,
+			Metrics:    metrics,
 			Metadata: JSONMetadata{
-				RetrievedAt: retrievedAt,
-				DateRange:   data.Summary.DateRange,
+				RetrievedAt:    retrievedAt,
+				PropertyID:     propertyID,
+				StreamID:       streamID,
+				DateRange:      data.Summary.DateRange,
+				RecordIndex:    recordIndex + 1, // 1ベースのインデックス
+				TotalRecords:   totalRecords,
+				OutputFormat:   "json",
+				ToolVersion:    "ga-tool-v1.0", // バージョン情報
 			},
-		}
-
-		// ヘッダーと値をマッピング
-		for i, header := range data.Headers {
-			value := ""
-			if i < len(row) {
-				value = row[i]
-			}
-
-			// ディメンションとメトリクスを分類
-			// 一般的なディメンション名をチェック
-			if isDimension(header) {
-				record.Dimensions[header] = value
-			} else {
-				record.Metrics[header] = value
-			}
 		}
 
 		records = append(records, record)
 	}
 
-	// JSON エンコーダーを作成
+	// JSON エンコーダーを作成（UTF-8エンコーディング）
 	encoder := json.NewEncoder(writer)
 	encoder.SetIndent("", o.jsonWriter.indent)
+	encoder.SetEscapeHTML(false) // HTMLエスケープを無効化
 
 	// JSON配列として出力
 	if err := encoder.Encode(records); err != nil {
@@ -211,36 +217,138 @@ func (o *OutputServiceImpl) WriteJSON(data *analytics.ReportData, writer io.Writ
 	return nil
 }
 
+// createKeyValuePairs はヘッダーと行データからディメンションとメトリクスのキー・バリューペアを作成する
+// 要件4.6: ディメンションとメトリクスのキー・バリューペア変換
+func (o *OutputServiceImpl) createKeyValuePairs(headers []string, row []string) (map[string]string, map[string]string) {
+	dimensions := make(map[string]string)
+	metrics := make(map[string]string)
+
+	// ヘッダーと値をマッピング
+	for i, header := range headers {
+		value := ""
+		if i < len(row) {
+			value = row[i]
+		}
+
+		// ディメンションとメトリクスを分類
+		if isDimension(header) {
+			dimensions[header] = value
+		} else {
+			metrics[header] = value
+		}
+	}
+
+	return dimensions, metrics
+}
+
+// extractPropertyID は行データからプロパティIDを抽出する
+func (o *OutputServiceImpl) extractPropertyID(row []string, headers []string) string {
+	for i, header := range headers {
+		if strings.ToLower(header) == "property_id" && i < len(row) {
+			return row[i]
+		}
+	}
+	return ""
+}
+
+// extractStreamID は行データからストリームIDを抽出する
+func (o *OutputServiceImpl) extractStreamID(row []string, headers []string) string {
+	for i, header := range headers {
+		if strings.ToLower(header) == "stream_id" && i < len(row) {
+			return row[i]
+		}
+	}
+	return ""
+}
+
 // isDimension はヘッダー名がディメンションかどうかを判定する
+// 要件4.6: ディメンションとメトリクスの正確な分類
 func isDimension(header string) bool {
-	// 一般的なディメンション名のリスト
-	dimensions := []string{
-		"date", "pagePath", "fullURL", "country", "city", "browser",
-		"operatingSystem", "deviceCategory", "channelGrouping", "source",
-		"medium", "campaign", "landingPage", "exitPage", "eventName",
-	}
-
 	headerLower := strings.ToLower(header)
-	for _, dim := range dimensions {
-		if strings.ToLower(dim) == headerLower {
-			return true
-		}
+
+	// 明確にメトリクスと判定できるもの
+	knownMetrics := map[string]bool{
+		"sessions":                   true,
+		"activeusers":               true,
+		"newusers":                  true,
+		"averagesessionduration":    true,
+		"engagementrateduration":    true,
+		"bouncerate":                true,
+		"pageviews":                 true,
+		"screenpageviews":           true,
+		"eventcount":                true,
+		"conversions":               true,
+		"totalrevenue":              true,
+		"engagementrate":            true,
+		"engagedsessions":           true,
+		"averageengagementtime":     true,
+		"sessionsperpuser":          true,
+		"eventsperuser":             true,
+		"screenviewsperuser":        true,
+		"totalusers":                true,
+		"userengagementduration":    true,
 	}
 
-	// メトリクス名の場合はfalseを返す
-	metrics := []string{
-		"sessions", "activeUsers", "newUsers", "averageSessionDuration",
-		"engagementRateDuration", "bounceRate", "pageviews", "screenPageViews",
-		"eventCount", "conversions", "totalRevenue",
+	// スペースやアンダースコアを除去して正規化
+	normalizedHeader := strings.ReplaceAll(strings.ReplaceAll(headerLower, "_", ""), " ", "")
+
+	if knownMetrics[normalizedHeader] {
+		return false
 	}
 
-	for _, metric := range metrics {
-		if strings.ToLower(metric) == headerLower {
-			return false
-		}
+	// 明確にディメンションと判定できるもの
+	knownDimensions := map[string]bool{
+		"date":              true,
+		"pagepath":          true,
+		"fullurl":           true,
+		"country":           true,
+		"city":              true,
+		"browser":           true,
+		"operatingsystem":   true,
+		"devicecategory":    true,
+		"channelgrouping":   true,
+		"source":            true,
+		"medium":            true,
+		"campaign":          true,
+		"landingpage":       true,
+		"exitpage":          true,
+		"eventname":         true,
+		"propertyid":        true,
+		"streamid":          true,
+		"hostname":          true,
+		"pagetitle":         true,
+		"referrer":          true,
+		"userid":            true,
+		"sessionid":         true,
+		"transactionid":     true,
+		"itemid":            true,
+		"itemname":          true,
+		"itemcategory":      true,
+		"continent":         true,
+		"region":            true,
+		"metro":             true,
+		"language":          true,
+		"age":               true,
+		"gender":            true,
 	}
 
-	// 不明な場合はディメンションとして扱う
+	normalizedHeader = strings.ReplaceAll(strings.ReplaceAll(headerLower, "_", ""), " ", "")
+
+	if knownDimensions[normalizedHeader] {
+		return true
+	}
+
+	// 数値的な名前パターンをチェック（メトリクスの可能性が高い）
+	if strings.Contains(headerLower, "count") ||
+	   strings.Contains(headerLower, "rate") ||
+	   strings.Contains(headerLower, "duration") ||
+	   strings.Contains(headerLower, "time") ||
+	   strings.Contains(headerLower, "revenue") ||
+	   strings.Contains(headerLower, "value") {
+		return false
+	}
+
+	// デフォルトはディメンションとして扱う
 	return true
 }
 
