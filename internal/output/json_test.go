@@ -398,3 +398,328 @@ func TestWriteJSON_NilData(t *testing.T) {
 		t.Errorf("エラーメッセージが期待値と一致しません: 期待値に含まれるべき=%s, 実際=%s", expectedErrorMessage, err.Error())
 	}
 }
+
+func TestJSONWriter_WriteRecords(t *testing.T) {
+	jsonWriter := &JSONWriter{
+		encoding:      "UTF-8",
+		indent:        "  ",
+		escapeHTML:    false,
+		compactOutput: false,
+	}
+
+	// テストレコードの作成
+	records := []JSONRecord{
+		{
+			Dimensions: map[string]string{
+				"date":     "2023-01-01",
+				"pagePath": "/home",
+			},
+			Metrics: map[string]string{
+				"sessions":    "1250",
+				"activeUsers": "1100",
+			},
+			Metadata: JSONMetadata{
+				RetrievedAt:  "2023-02-01T10:30:00Z",
+				PropertyID:   "987654321",
+				DateRange:    "2023-01-01 to 2023-01-31",
+				RecordIndex:  1,
+				TotalRecords: 1,
+				OutputFormat: "json",
+			},
+		},
+	}
+
+	// 通常の出力テスト
+	var buf bytes.Buffer
+	err := jsonWriter.writeRecords(records, &buf)
+	if err != nil {
+		t.Fatalf("writeRecords でエラーが発生しました: %v", err)
+	}
+
+	// 出力されたJSONの検証
+	var outputRecords []JSONRecord
+	if err := json.Unmarshal(buf.Bytes(), &outputRecords); err != nil {
+		t.Fatalf("出力されたJSONの解析に失敗しました: %v", err)
+	}
+
+	if len(outputRecords) != 1 {
+		t.Errorf("レコード数が一致しません: 期待値=1, 実際=%d", len(outputRecords))
+	}
+
+	// レコード内容の検証
+	record := outputRecords[0]
+	if record.Dimensions["date"] != "2023-01-01" {
+		t.Errorf("date ディメンションが一致しません: 期待値=2023-01-01, 実際=%s", record.Dimensions["date"])
+	}
+	if record.Metrics["sessions"] != "1250" {
+		t.Errorf("sessions メトリクスが一致しません: 期待値=1250, 実際=%s", record.Metrics["sessions"])
+	}
+}
+
+func TestJSONWriter_WriteRecordsWithOptions(t *testing.T) {
+	jsonWriter := &JSONWriter{
+		encoding:      "UTF-8",
+		indent:        "  ",
+		escapeHTML:    false,
+		compactOutput: false,
+	}
+
+	records := []JSONRecord{
+		{
+			Dimensions: map[string]string{"date": "2023-01-01"},
+			Metrics:    map[string]string{"sessions": "1250"},
+			Metadata: JSONMetadata{
+				RetrievedAt:  "2023-02-01T10:30:00Z",
+				RecordIndex:  1,
+				TotalRecords: 1,
+				OutputFormat: "json",
+			},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		options  JSONWriteOptions
+		validate func(t *testing.T, output string)
+	}{
+		{
+			name: "コンパクト出力",
+			options: JSONWriteOptions{
+				CompactOutput: boolPtr(true),
+			},
+			validate: func(t *testing.T, output string) {
+				// コンパクト出力では改行やインデントが最小限
+				if strings.Contains(output, "  ") {
+					t.Error("コンパクト出力にインデントが含まれています")
+				}
+			},
+		},
+		{
+			name: "カスタムインデント",
+			options: JSONWriteOptions{
+				Indent: stringPtr("    "), // 4スペース
+			},
+			validate: func(t *testing.T, output string) {
+				if !strings.Contains(output, "    ") {
+					t.Error("カスタムインデント（4スペース）が適用されていません")
+				}
+			},
+		},
+		{
+			name: "HTMLエスケープ有効",
+			options: JSONWriteOptions{
+				EscapeHTML: boolPtr(true),
+			},
+			validate: func(t *testing.T, output string) {
+				// HTMLエスケープが有効な場合の検証
+				// この場合は特別な文字がないので、エラーが発生しないことを確認
+				var records []JSONRecord
+				if err := json.Unmarshal([]byte(output), &records); err != nil {
+					t.Errorf("HTMLエスケープ有効時のJSON解析に失敗: %v", err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := jsonWriter.writeRecordsWithOptions(records, &buf, tt.options)
+			if err != nil {
+				t.Fatalf("writeRecordsWithOptions でエラーが発生しました: %v", err)
+			}
+
+			output := buf.String()
+			tt.validate(t, output)
+
+			// 基本的なJSON妥当性の確認
+			var outputRecords []JSONRecord
+			if err := json.Unmarshal([]byte(output), &outputRecords); err != nil {
+				t.Errorf("出力されたJSONが無効です: %v", err)
+			}
+		})
+	}
+}
+
+func TestJSONWriter_ValidateJSONOutput(t *testing.T) {
+	jsonWriter := &JSONWriter{}
+
+	tests := []struct {
+		name      string
+		jsonData  string
+		expectErr bool
+		errMsg    string
+	}{
+		{
+			name: "有効なJSON",
+			jsonData: `[{
+				"dimensions": {"date": "2023-01-01"},
+				"metrics": {"sessions": "1250"},
+				"metadata": {
+					"retrieved_at": "2023-02-01T10:30:00Z",
+					"record_index": 1,
+					"total_records": 1,
+					"output_format": "json"
+				}
+			}]`,
+			expectErr: false,
+		},
+		{
+			name:      "無効なJSON",
+			jsonData:  `[{"invalid": json}]`,
+			expectErr: true,
+			errMsg:    "出力されたJSONが無効です",
+		},
+		{
+			name: "dimensions が nil",
+			jsonData: `[{
+				"dimensions": null,
+				"metrics": {"sessions": "1250"},
+				"metadata": {"retrieved_at": "2023-02-01T10:30:00Z"}
+			}]`,
+			expectErr: true,
+			errMsg:    "dimensions が nil です",
+		},
+		{
+			name: "metrics が nil",
+			jsonData: `[{
+				"dimensions": {"date": "2023-01-01"},
+				"metrics": null,
+				"metadata": {"retrieved_at": "2023-02-01T10:30:00Z"}
+			}]`,
+			expectErr: true,
+			errMsg:    "metrics が nil です",
+		},
+		{
+			name: "retrieved_at が空",
+			jsonData: `[{
+				"dimensions": {"date": "2023-01-01"},
+				"metrics": {"sessions": "1250"},
+				"metadata": {"retrieved_at": ""}
+			}]`,
+			expectErr: true,
+			errMsg:    "retrieved_at が空です",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := jsonWriter.validateJSONOutput([]byte(tt.jsonData))
+
+			if tt.expectErr {
+				if err == nil {
+					t.Error("エラーが期待されましたが、エラーが発生しませんでした")
+				} else if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("期待されたエラーメッセージが含まれていません: 期待=%s, 実際=%s", tt.errMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("予期しないエラーが発生しました: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestJSONWriter_FormatJSONForDisplay(t *testing.T) {
+	jsonWriter := &JSONWriter{
+		encoding:      "UTF-8",
+		indent:        "\t", // タブインデント
+		escapeHTML:    true,
+		compactOutput: true, // 元の設定はコンパクト
+	}
+
+	records := []JSONRecord{
+		{
+			Dimensions: map[string]string{
+				"date":     "2023-01-01",
+				"pagePath": "/home",
+			},
+			Metrics: map[string]string{
+				"sessions": "1250",
+			},
+			Metadata: JSONMetadata{
+				RetrievedAt:  "2023-02-01T10:30:00Z",
+				RecordIndex:  1,
+				TotalRecords: 1,
+				OutputFormat: "json",
+			},
+		},
+	}
+
+	// 表示用フォーマット
+	formatted, err := jsonWriter.formatJSONForDisplay(records)
+	if err != nil {
+		t.Fatalf("formatJSONForDisplay でエラーが発生しました: %v", err)
+	}
+
+	// 表示用設定が適用されていることを確認（2スペースインデント）
+	if !strings.Contains(formatted, "  ") {
+		t.Error("表示用の2スペースインデントが適用されていません")
+	}
+
+	// 元の設定が保持されていることを確認
+	if jsonWriter.indent != "\t" {
+		t.Error("元のインデント設定が変更されています")
+	}
+	if !jsonWriter.compactOutput {
+		t.Error("元のコンパクト出力設定が変更されています")
+	}
+
+	// 出力されたJSONが有効であることを確認
+	var outputRecords []JSONRecord
+	if err := json.Unmarshal([]byte(formatted), &outputRecords); err != nil {
+		t.Errorf("表示用JSONが無効です: %v", err)
+	}
+}
+
+func TestJSONWriter_UTF8Encoding(t *testing.T) {
+	jsonWriter := &JSONWriter{
+		encoding:      "UTF-8",
+		indent:        "  ",
+		escapeHTML:    false,
+		compactOutput: false,
+	}
+
+	// 日本語を含むテストデータ
+	records := []JSONRecord{
+		{
+			Dimensions: map[string]string{
+				"pagePath":  "/ホーム",
+				"pageTitle": "ホームページ",
+			},
+			Metrics: map[string]string{
+				"sessions": "1250",
+			},
+			Metadata: JSONMetadata{
+				RetrievedAt:  "2023-02-01T10:30:00Z",
+				RecordIndex:  1,
+				TotalRecords: 1,
+				OutputFormat: "json",
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	err := jsonWriter.writeRecords(records, &buf)
+	if err != nil {
+		t.Fatalf("UTF-8エンコーディングテストでエラーが発生しました: %v", err)
+	}
+
+	// UTF-8として正しく出力されていることを確認
+	output := buf.String()
+	if !strings.Contains(output, "ホーム") {
+		t.Error("日本語文字が正しく出力されていません")
+	}
+
+	// JSONとして正しく解析できることを確認
+	var outputRecords []JSONRecord
+	if err := json.Unmarshal(buf.Bytes(), &outputRecords); err != nil {
+		t.Fatalf("UTF-8 JSONの解析に失敗しました: %v", err)
+	}
+
+	// 日本語文字が正しく保持されていることを確認
+	if outputRecords[0].Dimensions["pagePath"] != "/ホーム" {
+		t.Errorf("日本語文字が正しく保持されていません: 期待値=/ホーム, 実際=%s", outputRecords[0].Dimensions["pagePath"])
+	}
+}

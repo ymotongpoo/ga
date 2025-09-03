@@ -15,6 +15,7 @@
 package output
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -80,9 +81,13 @@ type CSVWriter struct {
 }
 
 // JSONWriter はJSON出力を行う構造体
+// 要件4.6, 4.9: 構造化されたJSON配列の生成、UTF-8エンコーディング対応
 type JSONWriter struct {
-	encoding string
-	indent   string
+	encoding        string
+	indent          string
+	escapeHTML      bool
+	sortKeys        bool
+	compactOutput   bool
 }
 
 // JSONRecord はJSON出力用のレコード構造体
@@ -120,8 +125,11 @@ func NewOutputService() OutputService {
 			delimiter: ',',
 		},
 		jsonWriter: &JSONWriter{
-			encoding: "UTF-8",
-			indent:   "  ",
+			encoding:      "UTF-8",
+			indent:        "  ",
+			escapeHTML:    false,
+			sortKeys:      false,
+			compactOutput: false,
 		},
 	}
 }
@@ -204,17 +212,8 @@ func (o *OutputServiceImpl) WriteJSON(data *analytics.ReportData, writer io.Writ
 		records = append(records, record)
 	}
 
-	// JSON エンコーダーを作成（UTF-8エンコーディング）
-	encoder := json.NewEncoder(writer)
-	encoder.SetIndent("", o.jsonWriter.indent)
-	encoder.SetEscapeHTML(false) // HTMLエスケープを無効化
-
-	// JSON配列として出力
-	if err := encoder.Encode(records); err != nil {
-		return fmt.Errorf("JSON書き込み中にエラーが発生しました: %w", err)
-	}
-
-	return nil
+	// JSONライターを使用して出力
+	return o.jsonWriter.writeRecords(records, writer)
 }
 
 // createKeyValuePairs はヘッダーと行データからディメンションとメトリクスのキー・バリューペアを作成する
@@ -556,6 +555,116 @@ func (o *OutputServiceImpl) handleFileCreationError(filename string, err error) 
 
 	// その他のエラー
 	return fmt.Errorf("ファイル '%s' の作成に失敗しました: %w", filename, err)
+}
+
+// writeRecords はJSONレコード配列をWriterに出力する
+// 要件4.6, 4.9: 構造化されたJSON配列の生成、UTF-8エンコーディング対応
+func (jw *JSONWriter) writeRecords(records []JSONRecord, writer io.Writer) error {
+	// JSON エンコーダーを作成（UTF-8エンコーディング）
+	encoder := json.NewEncoder(writer)
+
+	// エンコーダーの設定
+	if jw.compactOutput {
+		encoder.SetIndent("", "")
+	} else {
+		encoder.SetIndent("", jw.indent)
+	}
+
+	encoder.SetEscapeHTML(jw.escapeHTML)
+
+	// JSON配列として出力
+	if err := encoder.Encode(records); err != nil {
+		return fmt.Errorf("JSON書き込み中にエラーが発生しました: %w", err)
+	}
+
+	return nil
+}
+
+// writeRecordsWithOptions はオプション付きでJSONレコード配列を出力する
+func (jw *JSONWriter) writeRecordsWithOptions(records []JSONRecord, writer io.Writer, options JSONWriteOptions) error {
+	// 一時的にオプションを適用
+	originalIndent := jw.indent
+	originalEscapeHTML := jw.escapeHTML
+	originalCompactOutput := jw.compactOutput
+
+	if options.Indent != nil {
+		jw.indent = *options.Indent
+	}
+	if options.EscapeHTML != nil {
+		jw.escapeHTML = *options.EscapeHTML
+	}
+	if options.CompactOutput != nil {
+		jw.compactOutput = *options.CompactOutput
+	}
+
+	// 出力実行
+	err := jw.writeRecords(records, writer)
+
+	// 設定を元に戻す
+	jw.indent = originalIndent
+	jw.escapeHTML = originalEscapeHTML
+	jw.compactOutput = originalCompactOutput
+
+	return err
+}
+
+// JSONWriteOptions はJSON出力のオプションを定義する
+type JSONWriteOptions struct {
+	Indent        *string
+	EscapeHTML    *bool
+	CompactOutput *bool
+	SortKeys      *bool
+}
+
+// validateJSONOutput は出力されたJSONの妥当性を検証する
+func (jw *JSONWriter) validateJSONOutput(data []byte) error {
+	var records []JSONRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		return fmt.Errorf("出力されたJSONが無効です: %w", err)
+	}
+
+	// 基本的な構造の検証
+	for i, record := range records {
+		if record.Dimensions == nil {
+			return fmt.Errorf("レコード %d の dimensions が nil です", i+1)
+		}
+		if record.Metrics == nil {
+			return fmt.Errorf("レコード %d の metrics が nil です", i+1)
+		}
+		if record.Metadata.RetrievedAt == "" {
+			return fmt.Errorf("レコード %d の retrieved_at が空です", i+1)
+		}
+	}
+
+	return nil
+}
+
+// formatJSONForDisplay は表示用にJSONを整形する
+func (jw *JSONWriter) formatJSONForDisplay(records []JSONRecord) (string, error) {
+	var buf bytes.Buffer
+
+	// 表示用の設定で出力
+	options := JSONWriteOptions{
+		Indent:        stringPtr("  "),
+		EscapeHTML:    boolPtr(false),
+		CompactOutput: boolPtr(false),
+	}
+
+	if err := jw.writeRecordsWithOptions(records, &buf, options); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+// stringPtr は文字列のポインタを返すヘルパー関数
+func stringPtr(s string) *string {
+	return &s
+}
+
+// boolPtr はboolのポインタを返すヘルパー関数
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 // GetOutputSummary は出力データのサマリー情報を取得する
