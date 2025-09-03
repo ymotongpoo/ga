@@ -49,15 +49,42 @@ func (f OutputFormat) String() string {
 }
 
 // ParseOutputFormat は文字列から OutputFormat を解析する
+// 要件4.2, 4.3, 4.4: デフォルト形式（CSV）の設定、無効な形式指定時のエラーハンドリング
 func ParseOutputFormat(format string) (OutputFormat, error) {
-	switch strings.ToLower(format) {
+	// 空文字列の場合はデフォルト（CSV）を返す
+	if strings.TrimSpace(format) == "" {
+		return FormatCSV, nil
+	}
+
+	// 大文字小文字を無視して比較
+	normalizedFormat := strings.ToLower(strings.TrimSpace(format))
+
+	switch normalizedFormat {
 	case "csv":
 		return FormatCSV, nil
 	case "json":
 		return FormatJSON, nil
 	default:
-		return FormatCSV, fmt.Errorf("無効な出力形式: %s (csv または json を指定してください)", format)
+		// サポートされている形式の一覧を含む詳細なエラーメッセージ
+		return FormatCSV, fmt.Errorf("無効な出力形式: '%s'\n\nサポートされている形式:\n  - csv  (デフォルト)\n  - json\n\n例: --format csv または --format json", format)
 	}
+}
+
+// GetDefaultOutputFormat はデフォルトの出力形式を返す
+// 要件4.2: デフォルト形式（CSV）の設定
+func GetDefaultOutputFormat() OutputFormat {
+	return FormatCSV
+}
+
+// IsValidOutputFormat は指定された形式が有効かどうかを判定する
+func IsValidOutputFormat(format string) bool {
+	_, err := ParseOutputFormat(format)
+	return err == nil
+}
+
+// GetSupportedFormats はサポートされている出力形式の一覧を返す
+func GetSupportedFormats() []string {
+	return []string{"csv", "json"}
 }
 
 // OutputService はデータ出力を提供するインターフェース

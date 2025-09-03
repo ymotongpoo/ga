@@ -177,9 +177,9 @@ func (app *CLIApp) parseArgs(args []string) (*CLIOptions, error) {
 		return nil, fmt.Errorf("設定ファイルパスが指定されていません")
 	}
 
-	// 出力形式の検証
-	if options.OutputFormat != "csv" && options.OutputFormat != "json" {
-		return nil, fmt.Errorf("無効な出力形式です: %s (csv または json を指定してください)", options.OutputFormat)
+	// 出力形式の検証（ParseOutputFormatを使用して詳細なエラーメッセージを提供）
+	if _, err := output.ParseOutputFormat(options.OutputFormat); err != nil {
+		return nil, fmt.Errorf("出力形式エラー: %w", err)
 	}
 
 	return options, nil

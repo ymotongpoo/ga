@@ -723,3 +723,256 @@ func TestJSONWriter_UTF8Encoding(t *testing.T) {
 		t.Errorf("日本語文字が正しく保持されていません: 期待値=/ホーム, 実際=%s", outputRecords[0].Dimensions["pagePath"])
 	}
 }
+
+func TestParseOutputFormat(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedFormat OutputFormat
+		expectError    bool
+		errorContains  string
+	}{
+		{
+			name:           "有効なCSV形式（小文字）",
+			input:          "csv",
+			expectedFormat: FormatCSV,
+			expectError:    false,
+		},
+		{
+			name:           "有効なJSON形式（小文字）",
+			input:          "json",
+			expectedFormat: FormatJSON,
+			expectError:    false,
+		},
+		{
+			name:           "有効なCSV形式（大文字）",
+			input:          "CSV",
+			expectedFormat: FormatCSV,
+			expectError:    false,
+		},
+		{
+			name:           "有効なJSON形式（大文字）",
+			input:          "JSON",
+			expectedFormat: FormatJSON,
+			expectError:    false,
+		},
+		{
+			name:           "有効なCSV形式（混合ケース）",
+			input:          "Csv",
+			expectedFormat: FormatCSV,
+			expectError:    false,
+		},
+		{
+			name:           "空文字列（デフォルト）",
+			input:          "",
+			expectedFormat: FormatCSV,
+			expectError:    false,
+		},
+		{
+			name:           "スペースのみ（デフォルト）",
+			input:          "   ",
+			expectedFormat: FormatCSV,
+			expectError:    false,
+		},
+		{
+			name:           "前後にスペースがあるCSV",
+			input:          "  csv  ",
+			expectedFormat: FormatCSV,
+			expectError:    false,
+		},
+		{
+			name:        "無効な形式",
+			input:       "xml",
+			expectError: true,
+			errorContains: "無効な出力形式",
+		},
+		{
+			name:        "無効な形式（数字）",
+			input:       "123",
+			expectError: true,
+			errorContains: "無効な出力形式",
+		},
+		{
+			name:        "無効な形式（特殊文字）",
+			input:       "csv!",
+			expectError: true,
+			errorContains: "無効な出力形式",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			format, err := ParseOutputFormat(tt.input)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("エラーが期待されましたが、エラーが発生しませんでした")
+				} else if !strings.Contains(err.Error(), tt.errorContains) {
+					t.Errorf("期待されたエラーメッセージが含まれていません: 期待=%s, 実際=%s", tt.errorContains, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("予期しないエラーが発生しました: %v", err)
+				} else if format != tt.expectedFormat {
+					t.Errorf("出力形式が一致しません: 期待=%v, 実際=%v", tt.expectedFormat, format)
+				}
+			}
+		})
+	}
+}
+
+func TestGetDefaultOutputFormat(t *testing.T) {
+	defaultFormat := GetDefaultOutputFormat()
+	if defaultFormat != FormatCSV {
+		t.Errorf("デフォルト出力形式が期待値と一致しません: 期待=%v, 実際=%v", FormatCSV, defaultFormat)
+	}
+}
+
+func TestIsValidOutputFormat(t *testing.T) {
+	tests := []struct {
+		format   string
+		expected bool
+	}{
+		{"csv", true},
+		{"json", true},
+		{"CSV", true},
+		{"JSON", true},
+		{"", true}, // 空文字列はデフォルトとして有効
+		{"xml", false},
+		{"txt", false},
+		{"invalid", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			result := IsValidOutputFormat(tt.format)
+			if result != tt.expected {
+				t.Errorf("IsValidOutputFormat(%s) = %v, 期待値 %v", tt.format, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetSupportedFormats(t *testing.T) {
+	formats := GetSupportedFormats()
+
+	expectedFormats := []string{"csv", "json"}
+	if len(formats) != len(expectedFormats) {
+		t.Errorf("サポートされている形式の数が一致しません: 期待=%d, 実際=%d", len(expectedFormats), len(formats))
+	}
+
+	for _, expected := range expectedFormats {
+		found := false
+		for _, format := range formats {
+			if format == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("期待される形式 '%s' がサポートされている形式に含まれていません", expected)
+		}
+	}
+}
+
+func TestOutputFormat_String(t *testing.T) {
+	tests := []struct {
+		format   OutputFormat
+		expected string
+	}{
+		{FormatCSV, "csv"},
+		{FormatJSON, "json"},
+		{OutputFormat(999), "unknown"}, // 無効な値
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.format.String()
+			if result != tt.expected {
+				t.Errorf("OutputFormat.String() = %s, 期待値 %s", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestWriteOutput_FormatSelection(t *testing.T) {
+	outputService := NewOutputService()
+
+	// テストデータの作成
+	testData := &analytics.ReportData{
+		Headers: []string{"date", "pagePath", "sessions"},
+		Rows: [][]string{
+			{"2023-01-01", "/home", "1250"},
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows: 1,
+			DateRange: "2023-01-01 to 2023-01-31",
+		},
+	}
+
+	tests := []struct {
+		name         string
+		format       OutputFormat
+		expectError  bool
+		validateFunc func(t *testing.T, output string)
+	}{
+		{
+			name:        "CSV形式での出力",
+			format:      FormatCSV,
+			expectError: false,
+			validateFunc: func(t *testing.T, output string) {
+				if !strings.Contains(output, "date,pagePath,sessions") {
+					t.Error("CSVヘッダーが含まれていません")
+				}
+				if !strings.Contains(output, "2023-01-01,/home,1250") {
+					t.Error("CSVデータが含まれていません")
+				}
+			},
+		},
+		{
+			name:        "JSON形式での出力",
+			format:      FormatJSON,
+			expectError: false,
+			validateFunc: func(t *testing.T, output string) {
+				var records []JSONRecord
+				if err := json.Unmarshal([]byte(output), &records); err != nil {
+					t.Errorf("JSON出力の解析に失敗しました: %v", err)
+					return
+				}
+				if len(records) != 1 {
+					t.Errorf("JSONレコード数が一致しません: 期待=1, 実際=%d", len(records))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+
+			// 形式に応じて適切なメソッドを呼び出し
+			var err error
+			switch tt.format {
+			case FormatCSV:
+				err = outputService.WriteCSV(testData, &buf)
+			case FormatJSON:
+				err = outputService.WriteJSON(testData, &buf)
+			}
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("エラーが期待されましたが、エラーが発生しませんでした")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("予期しないエラーが発生しました: %v", err)
+				} else {
+					output := buf.String()
+					if tt.validateFunc != nil {
+						tt.validateFunc(t, output)
+					}
+				}
+			}
+		})
+	}
+}
