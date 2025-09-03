@@ -117,11 +117,11 @@ type CSVWriter struct {
 // JSONWriter はJSON出力を行う構造体
 // 要件4.6, 4.9: 構造化されたJSON配列の生成、UTF-8エンコーディング対応
 type JSONWriter struct {
-	encoding        string
-	indent          string
-	escapeHTML      bool
-	sortKeys        bool
-	compactOutput   bool
+	encoding      string
+	indent        string
+	escapeHTML    bool
+	sortKeys      bool
+	compactOutput bool
 }
 
 // JSONRecord はJSON出力用のレコード構造体
@@ -135,14 +135,14 @@ type JSONRecord struct {
 // JSONMetadata はJSON出力用のメタデータ構造体
 // 要件4.12: 取得日時、プロパティ情報などのメタデータを含む
 type JSONMetadata struct {
-	RetrievedAt    string `json:"retrieved_at"`
-	PropertyID     string `json:"property_id,omitempty"`
-	StreamID       string `json:"stream_id,omitempty"`
-	DateRange      string `json:"date_range"`
-	RecordIndex    int    `json:"record_index"`
-	TotalRecords   int    `json:"total_records"`
-	OutputFormat   string `json:"output_format"`
-	ToolVersion    string `json:"tool_version,omitempty"`
+	RetrievedAt  string `json:"retrieved_at"`
+	PropertyID   string `json:"property_id,omitempty"`
+	StreamID     string `json:"stream_id,omitempty"`
+	DateRange    string `json:"date_range"`
+	RecordIndex  int    `json:"record_index"`
+	TotalRecords int    `json:"total_records"`
+	OutputFormat string `json:"output_format"`
+	ToolVersion  string `json:"tool_version,omitempty"`
 }
 
 // OutputServiceImpl はOutputServiceの実装
@@ -232,14 +232,14 @@ func (o *OutputServiceImpl) WriteJSON(data *analytics.ReportData, writer io.Writ
 			Dimensions: dimensions,
 			Metrics:    metrics,
 			Metadata: JSONMetadata{
-				RetrievedAt:    retrievedAt,
-				PropertyID:     propertyID,
-				StreamID:       streamID,
-				DateRange:      data.Summary.DateRange,
-				RecordIndex:    recordIndex + 1, // 1ベースのインデックス
-				TotalRecords:   totalRecords,
-				OutputFormat:   "json",
-				ToolVersion:    "ga-tool-v1.0", // バージョン情報
+				RetrievedAt:  retrievedAt,
+				PropertyID:   propertyID,
+				StreamID:     streamID,
+				DateRange:    data.Summary.DateRange,
+				RecordIndex:  recordIndex + 1, // 1ベースのインデックス
+				TotalRecords: totalRecords,
+				OutputFormat: "json",
+				ToolVersion:  "ga-tool-v1.0", // バージョン情報
 			},
 		}
 
@@ -301,25 +301,25 @@ func isDimension(header string) bool {
 
 	// 明確にメトリクスと判定できるもの
 	knownMetrics := map[string]bool{
-		"sessions":                   true,
-		"activeusers":               true,
-		"newusers":                  true,
-		"averagesessionduration":    true,
-		"engagementrateduration":    true,
-		"bouncerate":                true,
-		"pageviews":                 true,
-		"screenpageviews":           true,
-		"eventcount":                true,
-		"conversions":               true,
-		"totalrevenue":              true,
-		"engagementrate":            true,
-		"engagedsessions":           true,
-		"averageengagementtime":     true,
-		"sessionsperpuser":          true,
-		"eventsperuser":             true,
-		"screenviewsperuser":        true,
-		"totalusers":                true,
-		"userengagementduration":    true,
+		"sessions":               true,
+		"activeusers":            true,
+		"newusers":               true,
+		"averagesessionduration": true,
+		"engagementrateduration": true,
+		"bouncerate":             true,
+		"pageviews":              true,
+		"screenpageviews":        true,
+		"eventcount":             true,
+		"conversions":            true,
+		"totalrevenue":           true,
+		"engagementrate":         true,
+		"engagedsessions":        true,
+		"averageengagementtime":  true,
+		"sessionsperpuser":       true,
+		"eventsperuser":          true,
+		"screenviewsperuser":     true,
+		"totalusers":             true,
+		"userengagementduration": true,
 	}
 
 	// スペースやアンダースコアを除去して正規化
@@ -331,38 +331,38 @@ func isDimension(header string) bool {
 
 	// 明確にディメンションと判定できるもの
 	knownDimensions := map[string]bool{
-		"date":              true,
-		"pagepath":          true,
-		"fullurl":           true,
-		"country":           true,
-		"city":              true,
-		"browser":           true,
-		"operatingsystem":   true,
-		"devicecategory":    true,
-		"channelgrouping":   true,
-		"source":            true,
-		"medium":            true,
-		"campaign":          true,
-		"landingpage":       true,
-		"exitpage":          true,
-		"eventname":         true,
-		"propertyid":        true,
-		"streamid":          true,
-		"hostname":          true,
-		"pagetitle":         true,
-		"referrer":          true,
-		"userid":            true,
-		"sessionid":         true,
-		"transactionid":     true,
-		"itemid":            true,
-		"itemname":          true,
-		"itemcategory":      true,
-		"continent":         true,
-		"region":            true,
-		"metro":             true,
-		"language":          true,
-		"age":               true,
-		"gender":            true,
+		"date":            true,
+		"pagepath":        true,
+		"fullurl":         true,
+		"country":         true,
+		"city":            true,
+		"browser":         true,
+		"operatingsystem": true,
+		"devicecategory":  true,
+		"channelgrouping": true,
+		"source":          true,
+		"medium":          true,
+		"campaign":        true,
+		"landingpage":     true,
+		"exitpage":        true,
+		"eventname":       true,
+		"propertyid":      true,
+		"streamid":        true,
+		"hostname":        true,
+		"pagetitle":       true,
+		"referrer":        true,
+		"userid":          true,
+		"sessionid":       true,
+		"transactionid":   true,
+		"itemid":          true,
+		"itemname":        true,
+		"itemcategory":    true,
+		"continent":       true,
+		"region":          true,
+		"metro":           true,
+		"language":        true,
+		"age":             true,
+		"gender":          true,
 	}
 
 	normalizedHeader = strings.ReplaceAll(strings.ReplaceAll(headerLower, "_", ""), " ", "")
@@ -373,11 +373,11 @@ func isDimension(header string) bool {
 
 	// 数値的な名前パターンをチェック（メトリクスの可能性が高い）
 	if strings.Contains(headerLower, "count") ||
-	   strings.Contains(headerLower, "rate") ||
-	   strings.Contains(headerLower, "duration") ||
-	   strings.Contains(headerLower, "time") ||
-	   strings.Contains(headerLower, "revenue") ||
-	   strings.Contains(headerLower, "value") {
+		strings.Contains(headerLower, "rate") ||
+		strings.Contains(headerLower, "duration") ||
+		strings.Contains(headerLower, "time") ||
+		strings.Contains(headerLower, "revenue") ||
+		strings.Contains(headerLower, "value") {
 		return false
 	}
 
@@ -654,8 +654,8 @@ type JSONWriteOptions struct {
 // 要件4.7, 4.8: 統合出力サービスの更新
 type OutputOptions struct {
 	// 基本オプション
-	OutputPath   string
-	Format       OutputFormat
+	OutputPath string
+	Format     OutputFormat
 
 	// ファイル出力オプション
 	OverwriteExisting bool
@@ -663,9 +663,9 @@ type OutputOptions struct {
 	FilePermissions   os.FileMode
 
 	// 表示オプション
-	ShowProgress      bool
-	ShowSummary       bool
-	QuietMode         bool
+	ShowProgress bool
+	ShowSummary  bool
+	QuietMode    bool
 
 	// 形式固有オプション
 	CSVOptions  *CSVWriteOptions
@@ -934,14 +934,14 @@ func (o *OutputServiceImpl) convertToJSONRecords(data *analytics.ReportData) []J
 			Dimensions: dimensions,
 			Metrics:    metrics,
 			Metadata: JSONMetadata{
-				RetrievedAt:    retrievedAt,
-				PropertyID:     propertyID,
-				StreamID:       streamID,
-				DateRange:      data.Summary.DateRange,
-				RecordIndex:    recordIndex + 1,
-				TotalRecords:   totalRecords,
-				OutputFormat:   "json",
-				ToolVersion:    "ga-tool-v1.0",
+				RetrievedAt:  retrievedAt,
+				PropertyID:   propertyID,
+				StreamID:     streamID,
+				DateRange:    data.Summary.DateRange,
+				RecordIndex:  recordIndex + 1,
+				TotalRecords: totalRecords,
+				OutputFormat: "json",
+				ToolVersion:  "ga-tool-v1.0",
 			},
 		}
 
