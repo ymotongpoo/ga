@@ -692,11 +692,11 @@ func TestJSONOutputFileOperations(t *testing.T) {
 
 		options := OutputOptions{
 			OutputPath:        tempFile,
-			Format:           FormatJSON,
+			Format:            FormatJSON,
 			OverwriteExisting: true,
 			CreateDirectories: true,
-			ShowSummary:      false,
-			QuietMode:        true,
+			ShowSummary:       false,
+			QuietMode:         true,
 			JSONOptions: &JSONWriteOptions{
 				Indent:        stringPtr("    "), // 4スペースインデント
 				CompactOutput: boolPtr(false),
@@ -753,8 +753,8 @@ func TestJSONErrorHandling(t *testing.T) {
 		invalidData := &analytics.ReportData{
 			Headers: []string{"date", "sessions"},
 			Rows: [][]string{
-				{"2023-01-01", "1250"},      // 正常
-				{"2023-01-02"},              // 列数不足
+				{"2023-01-01", "1250"},          // 正常
+				{"2023-01-02"},                  // 列数不足
 				{"2023-01-03", "1180", "extra"}, // 列数過多
 			},
 			Summary: analytics.ReportSummary{

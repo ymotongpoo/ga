@@ -481,8 +481,8 @@ func openBrowser(url string) error {
 // isPortInUseError はポート使用中エラーかどうかを判定する
 func isPortInUseError(err error) bool {
 	return err != nil && (
-		// Linux/Unix系
-		fmt.Sprintf("%v", err) == "listen tcp 127.0.0.1:8080: bind: address already in use" ||
+	// Linux/Unix系
+	fmt.Sprintf("%v", err) == "listen tcp 127.0.0.1:8080: bind: address already in use" ||
 		// Windows
 		fmt.Sprintf("%v", err) == "listen tcp 127.0.0.1:8080: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted." ||
 		// 一般的なパターン

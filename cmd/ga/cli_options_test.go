@@ -234,9 +234,9 @@ func TestParseArgs_ErrorMessages(t *testing.T) {
 	app := NewCLIApp()
 
 	testCases := []struct {
-		name            string
-		args            []string
-		expectedError   string
+		name          string
+		args          []string
+		expectedError string
 	}{
 		{
 			name:          "Invalid format error message",

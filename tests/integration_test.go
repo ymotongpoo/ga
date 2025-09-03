@@ -121,9 +121,9 @@ func TestConfigServiceIntegration_InvalidConfig(t *testing.T) {
 	configService := config.NewConfigService()
 
 	tests := []struct {
-		name           string
-		configContent  string
-		expectedError  string
+		name          string
+		configContent string
+		expectedError string
 	}{
 		{
 			name: "Missing start_date",

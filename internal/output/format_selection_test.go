@@ -179,11 +179,11 @@ func TestOutputFormatSelectionIntegration(t *testing.T) {
 				name: "CSV詳細オプション",
 				options: OutputOptions{
 					OutputPath:        "test_csv_detailed.csv",
-					Format:           FormatCSV,
+					Format:            FormatCSV,
 					OverwriteExisting: true,
 					CreateDirectories: true,
-					ShowSummary:      false,
-					QuietMode:        true,
+					ShowSummary:       false,
+					QuietMode:         true,
 					CSVOptions: &CSVWriteOptions{
 						Delimiter:     ';',
 						IncludeHeader: true,
@@ -225,11 +225,11 @@ func TestOutputFormatSelectionIntegration(t *testing.T) {
 				name: "JSON詳細オプション",
 				options: OutputOptions{
 					OutputPath:        "test_json_detailed.json",
-					Format:           FormatJSON,
+					Format:            FormatJSON,
 					OverwriteExisting: true,
 					CreateDirectories: true,
-					ShowSummary:      false,
-					QuietMode:        true,
+					ShowSummary:       false,
+					QuietMode:         true,
 					JSONOptions: &JSONWriteOptions{
 						Indent:        stringPtr("\t"),
 						CompactOutput: boolPtr(false),
@@ -264,11 +264,11 @@ func TestOutputFormatSelectionIntegration(t *testing.T) {
 				name: "ディレクトリ作成テスト",
 				options: OutputOptions{
 					OutputPath:        "test_dir/subdir/output.json",
-					Format:           FormatJSON,
+					Format:            FormatJSON,
 					OverwriteExisting: true,
 					CreateDirectories: true,
-					ShowSummary:      false,
-					QuietMode:        true,
+					ShowSummary:       false,
+					QuietMode:         true,
 				},
 				verify: func(t *testing.T, outputPath string) {
 					defer os.RemoveAll("test_dir")
@@ -490,9 +490,9 @@ func TestFormatConsistencyAcrossOperations(t *testing.T) {
 
 		options := OutputOptions{
 			OutputPath:        outputFile2,
-			Format:           FormatJSON,
+			Format:            FormatJSON,
 			OverwriteExisting: true,
-			QuietMode:        true,
+			QuietMode:         true,
 		}
 
 		err = outputService.WriteWithOptions(testData, options)

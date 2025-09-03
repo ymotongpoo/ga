@@ -60,8 +60,8 @@ func createInvalidReportData() *analytics.ReportData {
 	return &analytics.ReportData{
 		Headers: []string{"property_id", "date", "sessions"},
 		Rows: [][]string{
-			{"123456789", "2023-01-01", "1250"},           // 正常
-			{"123456789", "2023-01-02"},                   // 列数不足
+			{"123456789", "2023-01-01", "1250"},          // 正常
+			{"123456789", "2023-01-02"},                  // 列数不足
 			{"123456789", "2023-01-03", "1180", "extra"}, // 列数過多
 		},
 		Summary: analytics.ReportSummary{
@@ -524,11 +524,11 @@ func TestValidateFilePath(t *testing.T) {
 
 	// 無効なファイルパス
 	invalidPaths := []string{
-		"",           // 空文字列
-		"   ",        // 空白のみ
-		"file\x00",   // null文字
-		"file\n",     // 改行文字
-		"file\r",     // キャリッジリターン
+		"",         // 空文字列
+		"   ",      // 空白のみ
+		"file\x00", // null文字
+		"file\n",   // 改行文字
+		"file\r",   // キャリッジリターン
 	}
 
 	for _, path := range invalidPaths {
