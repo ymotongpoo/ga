@@ -88,6 +88,7 @@ func GetSupportedFormats() []string {
 }
 
 // OutputService はデータ出力を提供するインターフェース
+// 要件4.7, 4.8: 統合出力サービスの更新、形式対応の強化
 type OutputService interface {
 	// WriteCSV はReportDataをCSV形式でWriterに出力する
 	WriteCSV(data *analytics.ReportData, writer io.Writer) error
@@ -99,6 +100,12 @@ type OutputService interface {
 	WriteToConsole(data *analytics.ReportData, format OutputFormat) error
 	// WriteOutput は出力先と形式に応じて適切な出力方法を選択する
 	WriteOutput(data *analytics.ReportData, outputPath string, format OutputFormat) error
+	// WriteWithOptions は詳細なオプション付きで出力する
+	WriteWithOptions(data *analytics.ReportData, options OutputOptions) error
+	// ValidateOutputOptions は出力オプションの妥当性を検証する
+	ValidateOutputOptions(options OutputOptions) error
+	// GetOutputSummary は出力データのサマリー情報を取得する
+	GetOutputSummary(data *analytics.ReportData, format OutputFormat) string
 }
 
 // CSVWriter はCSV出力を行う構造体
@@ -643,6 +650,35 @@ type JSONWriteOptions struct {
 	SortKeys      *bool
 }
 
+// OutputOptions は統合出力オプションを定義する
+// 要件4.7, 4.8: 統合出力サービスの更新
+type OutputOptions struct {
+	// 基本オプション
+	OutputPath   string
+	Format       OutputFormat
+
+	// ファイル出力オプション
+	OverwriteExisting bool
+	CreateDirectories bool
+	FilePermissions   os.FileMode
+
+	// 表示オプション
+	ShowProgress      bool
+	ShowSummary       bool
+	QuietMode         bool
+
+	// 形式固有オプション
+	CSVOptions  *CSVWriteOptions
+	JSONOptions *JSONWriteOptions
+}
+
+// CSVWriteOptions はCSV出力のオプションを定義する
+type CSVWriteOptions struct {
+	Delimiter     rune
+	IncludeHeader bool
+	Encoding      string
+}
+
 // validateJSONOutput は出力されたJSONの妥当性を検証する
 func (jw *JSONWriter) validateJSONOutput(data []byte) error {
 	var records []JSONRecord
@@ -692,6 +728,227 @@ func stringPtr(s string) *string {
 // boolPtr はboolのポインタを返すヘルパー関数
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// WriteWithOptions は詳細なオプション付きで出力する
+// 要件4.7, 4.8: 統合出力サービスの更新、形式対応
+func (o *OutputServiceImpl) WriteWithOptions(data *analytics.ReportData, options OutputOptions) error {
+	// オプションの妥当性を検証
+	if err := o.ValidateOutputOptions(options); err != nil {
+		return fmt.Errorf("出力オプションの検証に失敗しました: %w", err)
+	}
+
+	// データの妥当性を検証
+	if err := o.ValidateData(data); err != nil {
+		return fmt.Errorf("出力データの検証に失敗しました: %w", err)
+	}
+
+	// プログレス表示
+	if options.ShowProgress && !options.QuietMode {
+		formatName := strings.ToUpper(options.Format.String())
+		if options.OutputPath == "" || options.OutputPath == "-" {
+			fmt.Fprintf(os.Stderr, "📊 %s出力を標準出力に書き込み中...\n", formatName)
+		} else {
+			fmt.Fprintf(os.Stderr, "📄 %s出力をファイル '%s' に書き込み中...\n", formatName, options.OutputPath)
+		}
+	}
+
+	// 出力先に応じて処理を分岐
+	if options.OutputPath == "" || options.OutputPath == "-" {
+		return o.writeToConsoleWithOptions(data, options)
+	} else {
+		return o.writeToFileWithOptions(data, options)
+	}
+}
+
+// ValidateOutputOptions は出力オプションの妥当性を検証する
+// 要件4.7, 4.8: 統合出力サービスの更新
+func (o *OutputServiceImpl) ValidateOutputOptions(options OutputOptions) error {
+	// 出力形式の検証
+	if options.Format != FormatCSV && options.Format != FormatJSON {
+		return fmt.Errorf("サポートされていない出力形式です: %v", options.Format)
+	}
+
+	// ファイルパスの検証（ファイル出力の場合）
+	if options.OutputPath != "" && options.OutputPath != "-" {
+		if err := o.validateFilePath(options.OutputPath); err != nil {
+			return fmt.Errorf("出力ファイルパスが無効です: %w", err)
+		}
+	}
+
+	// ファイル権限の検証
+	if options.FilePermissions != 0 && (options.FilePermissions < 0o400 || options.FilePermissions > 0o777) {
+		return fmt.Errorf("無効なファイル権限です: %o", options.FilePermissions)
+	}
+
+	// CSV固有オプションの検証
+	if options.Format == FormatCSV && options.CSVOptions != nil {
+		if options.CSVOptions.Delimiter == 0 {
+			return fmt.Errorf("CSVデリミタが指定されていません")
+		}
+		if options.CSVOptions.Encoding != "" && options.CSVOptions.Encoding != "UTF-8" {
+			return fmt.Errorf("サポートされていないエンコーディングです: %s", options.CSVOptions.Encoding)
+		}
+	}
+
+	return nil
+}
+
+// writeToConsoleWithOptions はオプション付きで標準出力に書き込む
+func (o *OutputServiceImpl) writeToConsoleWithOptions(data *analytics.ReportData, options OutputOptions) error {
+	// サマリー表示
+	if options.ShowSummary && !options.QuietMode {
+		summary := o.GetOutputSummary(data, options.Format)
+		fmt.Fprintf(os.Stderr, "%s\n", summary)
+	}
+
+	// 形式に応じて出力
+	switch options.Format {
+	case FormatCSV:
+		if options.CSVOptions != nil {
+			return o.writeCSVWithOptions(data, os.Stdout, *options.CSVOptions)
+		}
+		return o.WriteCSV(data, os.Stdout)
+	case FormatJSON:
+		if options.JSONOptions != nil {
+			return o.jsonWriter.writeRecordsWithOptions(o.convertToJSONRecords(data), os.Stdout, *options.JSONOptions)
+		}
+		return o.WriteJSON(data, os.Stdout)
+	default:
+		return fmt.Errorf("サポートされていない出力形式です: %v", options.Format)
+	}
+}
+
+// writeToFileWithOptions はオプション付きでファイルに書き込む
+func (o *OutputServiceImpl) writeToFileWithOptions(data *analytics.ReportData, options OutputOptions) error {
+	// ディレクトリ作成
+	if options.CreateDirectories {
+		if err := o.ensureDirectoryExists(options.OutputPath); err != nil {
+			return fmt.Errorf("出力ディレクトリの作成に失敗しました: %w", err)
+		}
+	}
+
+	// ファイル存在確認
+	if !options.OverwriteExisting {
+		if _, err := os.Stat(options.OutputPath); err == nil {
+			return fmt.Errorf("ファイル '%s' は既に存在します。上書きするには OverwriteExisting オプションを有効にしてください", options.OutputPath)
+		}
+	}
+
+	// ファイル作成
+	file, err := os.Create(options.OutputPath)
+	if err != nil {
+		return o.handleFileCreationError(options.OutputPath, err)
+	}
+	defer file.Close()
+
+	// ファイル権限設定
+	if options.FilePermissions != 0 {
+		if err := file.Chmod(options.FilePermissions); err != nil {
+			fmt.Fprintf(os.Stderr, "警告: ファイル権限の設定に失敗しました: %v\n", err)
+		}
+	}
+
+	// 形式に応じて書き込み
+	var writeErr error
+	switch options.Format {
+	case FormatCSV:
+		if options.CSVOptions != nil {
+			writeErr = o.writeCSVWithOptions(data, file, *options.CSVOptions)
+		} else {
+			writeErr = o.WriteCSV(data, file)
+		}
+	case FormatJSON:
+		if options.JSONOptions != nil {
+			writeErr = o.jsonWriter.writeRecordsWithOptions(o.convertToJSONRecords(data), file, *options.JSONOptions)
+		} else {
+			writeErr = o.WriteJSON(data, file)
+		}
+	default:
+		writeErr = fmt.Errorf("サポートされていない出力形式です: %v", options.Format)
+	}
+
+	if writeErr != nil {
+		// エラー時にファイルを削除
+		if removeErr := os.Remove(options.OutputPath); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "警告: 不完全なファイル '%s' の削除に失敗しました: %v\n", options.OutputPath, removeErr)
+		}
+		return fmt.Errorf("ファイル '%s' への書き込みに失敗しました: %w", options.OutputPath, writeErr)
+	}
+
+	// 完了メッセージ
+	if !options.QuietMode {
+		formatName := strings.ToUpper(options.Format.String())
+		fmt.Printf("✅ %s出力が完了しました: %s\n", formatName, options.OutputPath)
+
+		if options.ShowSummary {
+			summary := o.GetOutputSummary(data, options.Format)
+			fmt.Printf("%s\n", summary)
+		}
+	}
+
+	return nil
+}
+
+// writeCSVWithOptions はオプション付きでCSVを書き込む
+func (o *OutputServiceImpl) writeCSVWithOptions(data *analytics.ReportData, writer io.Writer, options CSVWriteOptions) error {
+	csvWriter := csv.NewWriter(writer)
+	if options.Delimiter != 0 {
+		csvWriter.Comma = options.Delimiter
+	}
+	defer csvWriter.Flush()
+
+	// ヘッダー書き込み
+	if options.IncludeHeader && len(data.Headers) > 0 {
+		if err := csvWriter.Write(data.Headers); err != nil {
+			return fmt.Errorf("ヘッダー行の書き込みに失敗しました: %w", err)
+		}
+	}
+
+	// データ行書き込み
+	for i, row := range data.Rows {
+		if err := csvWriter.Write(row); err != nil {
+			return fmt.Errorf("データ行 %d の書き込みに失敗しました: %w", i+1, err)
+		}
+	}
+
+	return csvWriter.Error()
+}
+
+// convertToJSONRecords はReportDataをJSONRecords配列に変換する
+func (o *OutputServiceImpl) convertToJSONRecords(data *analytics.ReportData) []JSONRecord {
+	records := make([]JSONRecord, 0, len(data.Rows))
+	retrievedAt := time.Now().UTC().Format(time.RFC3339)
+	totalRecords := len(data.Rows)
+
+	for recordIndex, row := range data.Rows {
+		if len(row) != len(data.Headers) {
+			continue
+		}
+
+		dimensions, metrics := o.createKeyValuePairs(data.Headers, row)
+		propertyID := o.extractPropertyID(row, data.Headers)
+		streamID := o.extractStreamID(row, data.Headers)
+
+		record := JSONRecord{
+			Dimensions: dimensions,
+			Metrics:    metrics,
+			Metadata: JSONMetadata{
+				RetrievedAt:    retrievedAt,
+				PropertyID:     propertyID,
+				StreamID:       streamID,
+				DateRange:      data.Summary.DateRange,
+				RecordIndex:    recordIndex + 1,
+				TotalRecords:   totalRecords,
+				OutputFormat:   "json",
+				ToolVersion:    "ga-tool-v1.0",
+			},
+		}
+
+		records = append(records, record)
+	}
+
+	return records
 }
 
 // GetOutputSummary は出力データのサマリー情報を取得する

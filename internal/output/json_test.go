@@ -976,3 +976,309 @@ func TestWriteOutput_FormatSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteWithOptions(t *testing.T) {
+	outputService := NewOutputService()
+
+	// テストデータの作成
+	testData := &analytics.ReportData{
+		Headers: []string{"date", "pagePath", "sessions"},
+		Rows: [][]string{
+			{"2023-01-01", "/home", "1250"},
+			{"2023-01-01", "/about", "450"},
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows: 2,
+			DateRange: "2023-01-01 to 2023-01-31",
+		},
+	}
+
+	tests := []struct {
+		name        string
+		options     OutputOptions
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "基本的なCSV出力（標準出力）",
+			options: OutputOptions{
+				OutputPath:  "",
+				Format:      FormatCSV,
+				ShowSummary: true,
+				QuietMode:   false,
+			},
+			expectError: false,
+		},
+		{
+			name: "基本的なJSON出力（標準出力）",
+			options: OutputOptions{
+				OutputPath:  "",
+				Format:      FormatJSON,
+				ShowSummary: true,
+				QuietMode:   false,
+			},
+			expectError: false,
+		},
+		{
+			name: "カスタムCSVオプション",
+			options: OutputOptions{
+				OutputPath: "",
+				Format:     FormatCSV,
+				CSVOptions: &CSVWriteOptions{
+					Delimiter:     ';',
+					IncludeHeader: true,
+					Encoding:      "UTF-8",
+				},
+				QuietMode: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "カスタムJSONオプション",
+			options: OutputOptions{
+				OutputPath: "",
+				Format:     FormatJSON,
+				JSONOptions: &JSONWriteOptions{
+					Indent:        stringPtr("    "),
+					CompactOutput: boolPtr(false),
+				},
+				QuietMode: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "無効な出力形式",
+			options: OutputOptions{
+				OutputPath: "",
+				Format:     OutputFormat(999),
+			},
+			expectError: true,
+			errorMsg:    "サポートされていない出力形式",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := outputService.WriteWithOptions(testData, tt.options)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("エラーが期待されましたが、エラーが発生しませんでした")
+				} else if !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("期待されたエラーメッセージが含まれていません: 期待=%s, 実際=%s", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("予期しないエラーが発生しました: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateOutputOptions(t *testing.T) {
+	outputService := NewOutputService().(*OutputServiceImpl)
+
+	tests := []struct {
+		name        string
+		options     OutputOptions
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "有効なCSVオプション",
+			options: OutputOptions{
+				Format:            FormatCSV,
+				OutputPath:        "test.csv",
+				OverwriteExisting: true,
+				FilePermissions:   0o644,
+				CSVOptions: &CSVWriteOptions{
+					Delimiter:     ',',
+					IncludeHeader: true,
+					Encoding:      "UTF-8",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "有効なJSONオプション",
+			options: OutputOptions{
+				Format:     FormatJSON,
+				OutputPath: "test.json",
+				JSONOptions: &JSONWriteOptions{
+					Indent:        stringPtr("  "),
+					CompactOutput: boolPtr(false),
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "無効な出力形式",
+			options: OutputOptions{
+				Format: OutputFormat(999),
+			},
+			expectError: true,
+			errorMsg:    "サポートされていない出力形式",
+		},
+		{
+			name: "無効なファイル権限",
+			options: OutputOptions{
+				Format:          FormatCSV,
+				OutputPath:      "test.csv",
+				FilePermissions: 0o1000, // 無効な権限（範囲外）
+			},
+			expectError: true,
+			errorMsg:    "無効なファイル権限",
+		},
+		{
+			name: "CSVデリミタ未指定",
+			options: OutputOptions{
+				Format: FormatCSV,
+				CSVOptions: &CSVWriteOptions{
+					Delimiter: 0, // 無効なデリミタ
+				},
+			},
+			expectError: true,
+			errorMsg:    "CSVデリミタが指定されていません",
+		},
+		{
+			name: "サポートされていないエンコーディング",
+			options: OutputOptions{
+				Format: FormatCSV,
+				CSVOptions: &CSVWriteOptions{
+					Delimiter: ',',
+					Encoding:  "SHIFT_JIS", // サポートされていない
+				},
+			},
+			expectError: true,
+			errorMsg:    "サポートされていないエンコーディング",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := outputService.ValidateOutputOptions(tt.options)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("エラーが期待されましたが、エラーが発生しませんでした")
+				} else if !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("期待されたエラーメッセージが含まれていません: 期待=%s, 実際=%s", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("予期しないエラーが発生しました: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWriteCSVWithOptions(t *testing.T) {
+	outputService := NewOutputService().(*OutputServiceImpl)
+
+	testData := &analytics.ReportData{
+		Headers: []string{"date", "pagePath", "sessions"},
+		Rows: [][]string{
+			{"2023-01-01", "/home", "1250"},
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows: 1,
+			DateRange: "2023-01-01 to 2023-01-31",
+		},
+	}
+
+	tests := []struct {
+		name     string
+		options  CSVWriteOptions
+		validate func(t *testing.T, output string)
+	}{
+		{
+			name: "セミコロンデリミタ",
+			options: CSVWriteOptions{
+				Delimiter:     ';',
+				IncludeHeader: true,
+			},
+			validate: func(t *testing.T, output string) {
+				if !strings.Contains(output, "date;pagePath;sessions") {
+					t.Error("セミコロンデリミタのヘッダーが含まれていません")
+				}
+				if !strings.Contains(output, "2023-01-01;/home;1250") {
+					t.Error("セミコロンデリミタのデータが含まれていません")
+				}
+			},
+		},
+		{
+			name: "ヘッダーなし",
+			options: CSVWriteOptions{
+				Delimiter:     ',',
+				IncludeHeader: false,
+			},
+			validate: func(t *testing.T, output string) {
+				if strings.Contains(output, "date,pagePath,sessions") {
+					t.Error("ヘッダーが含まれています（含まれるべきではありません）")
+				}
+				if !strings.Contains(output, "2023-01-01,/home,1250") {
+					t.Error("データが含まれていません")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := outputService.writeCSVWithOptions(testData, &buf, tt.options)
+			if err != nil {
+				t.Fatalf("writeCSVWithOptions でエラーが発生しました: %v", err)
+			}
+
+			output := buf.String()
+			tt.validate(t, output)
+		})
+	}
+}
+
+func TestConvertToJSONRecords(t *testing.T) {
+	outputService := NewOutputService().(*OutputServiceImpl)
+
+	testData := &analytics.ReportData{
+		Headers: []string{"property_id", "date", "pagePath", "sessions"},
+		Rows: [][]string{
+			{"987654321", "2023-01-01", "/home", "1250"},
+			{"987654321", "2023-01-01", "/about", "450"},
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows: 2,
+			DateRange: "2023-01-01 to 2023-01-31",
+		},
+	}
+
+	records := outputService.convertToJSONRecords(testData)
+
+	// レコード数の確認
+	if len(records) != 2 {
+		t.Errorf("レコード数が一致しません: 期待=2, 実際=%d", len(records))
+	}
+
+	// 最初のレコードの確認
+	firstRecord := records[0]
+	if firstRecord.Dimensions["property_id"] != "987654321" {
+		t.Errorf("property_id が一致しません: 期待=987654321, 実際=%s", firstRecord.Dimensions["property_id"])
+	}
+	if firstRecord.Metrics["sessions"] != "1250" {
+		t.Errorf("sessions が一致しません: 期待=1250, 実際=%s", firstRecord.Metrics["sessions"])
+	}
+	if firstRecord.Metadata.RecordIndex != 1 {
+		t.Errorf("RecordIndex が一致しません: 期待=1, 実際=%d", firstRecord.Metadata.RecordIndex)
+	}
+	if firstRecord.Metadata.TotalRecords != 2 {
+		t.Errorf("TotalRecords が一致しません: 期待=2, 実際=%d", firstRecord.Metadata.TotalRecords)
+	}
+
+	// 2番目のレコードのインデックス確認
+	secondRecord := records[1]
+	if secondRecord.Metadata.RecordIndex != 2 {
+		t.Errorf("2番目のレコードのRecordIndexが一致しません: 期待=2, 実際=%d", secondRecord.Metadata.RecordIndex)
+	}
+}
