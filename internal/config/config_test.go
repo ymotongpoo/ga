@@ -66,6 +66,41 @@ properties:
 		}
 	})
 
+	t.Run("base_url付き設定ファイルの読み込み", func(t *testing.T) {
+		// base_url付きの有効な設定ファイルを作成
+		validConfigWithBaseURL := `
+start_date: "2023-01-01"
+end_date: "2023-01-31"
+account: "123456789"
+properties:
+  - property: "987654321"
+    streams:
+      - stream: "1234567"
+        base_url: "https://example.com"
+        dimensions:
+          - "date"
+          - "pagePath"
+        metrics:
+          - "sessions"
+          - "activeUsers"
+`
+		configPath := filepath.Join(tempDir, "valid_config_with_base_url.yaml")
+		err := os.WriteFile(configPath, []byte(validConfigWithBaseURL), 0644)
+		if err != nil {
+			t.Fatalf("テストファイルの作成に失敗: %v", err)
+		}
+
+		config, err := service.LoadConfig(configPath)
+		if err != nil {
+			t.Errorf("LoadConfig() エラー = %v", err)
+			return
+		}
+
+		if config.Properties[0].Streams[0].BaseURL != "https://example.com" {
+			t.Errorf("BaseURL = %v, want %v", config.Properties[0].Streams[0].BaseURL, "https://example.com")
+		}
+	})
+
 	t.Run("存在しないファイル", func(t *testing.T) {
 		_, err := service.LoadConfig("nonexistent.yaml")
 		if err == nil {
@@ -126,6 +161,84 @@ func TestConfigServiceImpl_ValidateConfig(t *testing.T) {
 		err := service.ValidateConfig(config)
 		if err != nil {
 			t.Errorf("ValidateConfig() エラー = %v", err)
+		}
+	})
+
+	t.Run("有効な設定 - base_url付き", func(t *testing.T) {
+		config := &Config{
+			StartDate: "2023-01-01",
+			EndDate:   "2023-01-31",
+			Account:   "123456789",
+			Properties: []Property{
+				{
+					ID: "987654321",
+					Streams: []Stream{
+						{
+							ID:         "1234567",
+							BaseURL:    "https://example.com",
+							Dimensions: []string{"date", "pagePath"},
+							Metrics:    []string{"sessions", "activeUsers"},
+						},
+					},
+				},
+			},
+		}
+
+		err := service.ValidateConfig(config)
+		if err != nil {
+			t.Errorf("ValidateConfig() エラー = %v", err)
+		}
+	})
+
+	t.Run("不正なbase_url形式", func(t *testing.T) {
+		config := &Config{
+			StartDate: "2023-01-01",
+			EndDate:   "2023-01-31",
+			Account:   "123456789",
+			Properties: []Property{
+				{
+					ID: "987654321",
+					Streams: []Stream{
+						{
+							ID:         "1234567",
+							BaseURL:    "invalid-url",
+							Dimensions: []string{"date", "pagePath"},
+							Metrics:    []string{"sessions", "activeUsers"},
+						},
+					},
+				},
+			},
+		}
+
+		err := service.ValidateConfig(config)
+		if err == nil {
+			t.Error("不正なbase_url形式でエラーが発生しませんでした")
+		}
+	})
+
+	t.Run("空のbase_url（有効）", func(t *testing.T) {
+		config := &Config{
+			StartDate: "2023-01-01",
+			EndDate:   "2023-01-31",
+			Account:   "123456789",
+			Properties: []Property{
+				{
+					ID: "987654321",
+					Streams: []Stream{
+						{
+							ID:         "1234567",
+							BaseURL:    "",
+							Dimensions: []string{"date", "pagePath"},
+							Metrics:    []string{"sessions", "activeUsers"},
+						},
+					},
+				},
+			},
+		}
+
+		err := service.ValidateConfig(config)
+		if err != nil {
+			t.Errorf("空のbase_urlでエラーが発生しました: %v", err)
 		}
 	})
 

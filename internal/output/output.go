@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ymotongpoo/ga/internal/analytics"
+	"github.com/ymotongpoo/ga/internal/url"
 )
 
 // OutputFormat は出力形式を表す列挙型
@@ -179,16 +180,21 @@ func (o *OutputServiceImpl) WriteCSV(data *analytics.ReportData, writer io.Write
 	csvWriter.Comma = o.csvWriter.delimiter
 	defer csvWriter.Flush()
 
+	// URL結合処理の準備
+	urlProcessor := url.NewURLProcessor(data.StreamURLs)
+	processedHeaders, pagePathIndex := o.processHeaders(data.Headers)
+
 	// ヘッダー行を書き込み
-	if len(data.Headers) > 0 {
-		if err := csvWriter.Write(data.Headers); err != nil {
+	if len(processedHeaders) > 0 {
+		if err := csvWriter.Write(processedHeaders); err != nil {
 			return fmt.Errorf("ヘッダー行の書き込みに失敗しました: %w", err)
 		}
 	}
 
-	// データ行を書き込み
+	// データ行を書き込み（URL結合処理付き）
 	for i, row := range data.Rows {
-		if err := csvWriter.Write(row); err != nil {
+		processedRow := o.processRow(row, pagePathIndex, urlProcessor, data.Headers)
+		if err := csvWriter.Write(processedRow); err != nil {
 			return fmt.Errorf("データ行 %d の書き込みに失敗しました: %w", i+1, err)
 		}
 	}
@@ -215,18 +221,24 @@ func (o *OutputServiceImpl) WriteJSON(data *analytics.ReportData, writer io.Writ
 	retrievedAt := time.Now().UTC().Format(time.RFC3339)
 	totalRecords := len(data.Rows)
 
+	// URL結合処理の準備
+	urlProcessor := url.NewURLProcessor(data.StreamURLs)
+
 	// 各データ行をJSONレコードに変換
 	for recordIndex, row := range data.Rows {
 		if len(row) != len(data.Headers) {
 			continue // 不正な行はスキップ
 		}
 
+		// URL結合処理を行った行データを作成
+		processedRow := o.processRowForJSON(row, data.Headers, urlProcessor)
+
 		// ディメンションとメトリクスのキー・バリューペアを作成
-		dimensions, metrics := o.createKeyValuePairs(data.Headers, row)
+		dimensions, metrics := o.createKeyValuePairs(data.Headers, processedRow)
 
 		// プロパティIDとストリームIDを抽出
-		propertyID := o.extractPropertyID(row, data.Headers)
-		streamID := o.extractStreamID(row, data.Headers)
+		propertyID := o.extractPropertyID(processedRow, data.Headers)
+		streamID := o.extractStreamID(processedRow, data.Headers)
 
 		record := JSONRecord{
 			Dimensions: dimensions,
@@ -263,11 +275,17 @@ func (o *OutputServiceImpl) createKeyValuePairs(headers []string, row []string) 
 			value = row[i]
 		}
 
+		// pagePathの場合はfullURLとして扱う
+		displayHeader := header
+		if strings.ToLower(header) == "pagepath" {
+			displayHeader = "fullURL"
+		}
+
 		// ディメンションとメトリクスを分類
 		if isDimension(header) {
-			dimensions[header] = value
+			dimensions[displayHeader] = value
 		} else {
-			metrics[header] = value
+			metrics[displayHeader] = value
 		}
 	}
 
@@ -978,4 +996,82 @@ func (o *OutputServiceImpl) GetOutputSummary(data *analytics.ReportData, format 
 	}
 
 	return summary
+}
+
+// processHeaders はヘッダーを処理してpagePathをfullURLに変更し、pagePathのインデックスを返す
+func (o *OutputServiceImpl) processHeaders(headers []string) ([]string, int) {
+	processedHeaders := make([]string, len(headers))
+	pagePathIndex := -1
+
+	for i, header := range headers {
+		if strings.ToLower(header) == "pagepath" {
+			processedHeaders[i] = "fullURL"
+			pagePathIndex = i // 最後に見つかったインデックスを保持
+		} else {
+			processedHeaders[i] = header
+		}
+	}
+
+	return processedHeaders, pagePathIndex
+}
+
+// processRow はデータ行を処理してURL結合を行う
+func (o *OutputServiceImpl) processRow(row []string, pagePathIndex int, urlProcessor *url.URLProcessor, headers []string) []string {
+	if pagePathIndex == -1 || pagePathIndex >= len(row) {
+		// pagePathが見つからない場合はそのまま返す
+		return row
+	}
+
+	processedRow := make([]string, len(row))
+	copy(processedRow, row)
+
+	// ストリームIDを取得
+	streamID := o.extractStreamIDFromRow(row, headers)
+
+	// pagePathとベースURLを結合
+	pagePath := row[pagePathIndex]
+	fullURL := urlProcessor.ProcessPagePath(streamID, pagePath)
+	processedRow[pagePathIndex] = fullURL
+
+	return processedRow
+}
+
+// extractStreamIDFromRow は行データからストリームIDを抽出する
+func (o *OutputServiceImpl) extractStreamIDFromRow(row []string, headers []string) string {
+	for i, header := range headers {
+		if strings.ToLower(header) == "stream_id" && i < len(row) {
+			return row[i]
+		}
+	}
+	return ""
+}
+
+// processRowForJSON はJSON出力用にデータ行を処理してURL結合を行う
+func (o *OutputServiceImpl) processRowForJSON(row []string, headers []string, urlProcessor *url.URLProcessor) []string {
+	processedRow := make([]string, len(row))
+	copy(processedRow, row)
+
+	// pagePathのインデックスを探す
+	pagePathIndex := -1
+	for i, header := range headers {
+		if strings.ToLower(header) == "pagepath" {
+			pagePathIndex = i
+			break
+		}
+	}
+
+	if pagePathIndex == -1 || pagePathIndex >= len(row) {
+		// pagePathが見つからない場合はそのまま返す
+		return processedRow
+	}
+
+	// ストリームIDを取得
+	streamID := o.extractStreamIDFromRow(row, headers)
+
+	// pagePathとベースURLを結合
+	pagePath := row[pagePathIndex]
+	fullURL := urlProcessor.ProcessPagePath(streamID, pagePath)
+	processedRow[pagePathIndex] = fullURL
+
+	return processedRow
 }

@@ -50,6 +50,7 @@ type Property struct {
 // Stream はGoogle Analytics ストリームを表す構造体
 type Stream struct {
 	ID         string   `yaml:"stream"`
+	BaseURL    string   `yaml:"base_url,omitempty"`
 	Dimensions []string `yaml:"dimensions"`
 	Metrics    []string `yaml:"metrics"`
 }
@@ -189,6 +190,11 @@ func (c *ConfigServiceImpl) validatePropertiesAndStreams(config *Config) error {
 				return fmt.Errorf("properties[%d].streams[%d].stream ID の形式が不正です（数字のみ）: %s", i, j, stream.ID)
 			}
 
+			// base_urlの検証（オプション項目）
+			if err := c.validateBaseURL(stream.BaseURL, i, j); err != nil {
+				return err
+			}
+
 			// ディメンションとメトリクスの検証
 			if len(stream.Dimensions) == 0 {
 				return fmt.Errorf("properties[%d].streams[%d].dimensions は必須項目です", i, j)
@@ -211,6 +217,26 @@ func (c *ConfigServiceImpl) validatePropertiesAndStreams(config *Config) error {
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// validateBaseURL はbase_urlの妥当性を検証する
+func (c *ConfigServiceImpl) validateBaseURL(baseURL string, propertyIndex, streamIndex int) error {
+	// base_urlは省略可能なので、空文字列の場合は検証をスキップ
+	if strings.TrimSpace(baseURL) == "" {
+		return nil
+	}
+
+	// URLの形式検証（http://またはhttps://で始まる）
+	urlPattern := `^https?://[^\s/$.?#].[^\s]*$`
+	matched, err := regexp.MatchString(urlPattern, baseURL)
+	if err != nil {
+		return fmt.Errorf("properties[%d].streams[%d].base_url の検証中にエラーが発生しました: %w", propertyIndex, streamIndex, err)
+	}
+	if !matched {
+		return fmt.Errorf("properties[%d].streams[%d].base_url の形式が不正です（http://またはhttps://で始まる有効なURLを入力してください）: %s", propertyIndex, streamIndex, baseURL)
 	}
 
 	return nil

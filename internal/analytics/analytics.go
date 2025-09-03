@@ -46,9 +46,10 @@ type GA4Client struct {
 
 // ReportData はレポートデータを表す構造体
 type ReportData struct {
-	Headers []string
-	Rows    [][]string
-	Summary ReportSummary
+	Headers    []string
+	Rows       [][]string
+	Summary    ReportSummary
+	StreamURLs map[string]string // ストリームID -> ベースURL のマッピング
 }
 
 // ReportSummary はレポートサマリーを表す構造体
@@ -355,9 +356,20 @@ func (a *AnalyticsServiceImpl) fetchDataConcurrently(ctx context.Context, reques
 	}
 	fmt.Println()
 
+	// StreamURLsマッピングを構築
+	streamURLs := make(map[string]string)
+	for _, property := range config.Properties {
+		for _, stream := range property.Streams {
+			if stream.BaseURL != "" {
+				streamURLs[stream.ID] = stream.BaseURL
+			}
+		}
+	}
+
 	return &ReportData{
-		Headers: headers,
-		Rows:    allRows,
+		Headers:    headers,
+		Rows:       allRows,
+		StreamURLs: streamURLs,
 		Summary: ReportSummary{
 			TotalRows:  totalRows,
 			DateRange:  fmt.Sprintf("%s - %s", config.StartDate, config.EndDate),
@@ -571,8 +583,9 @@ func (a *AnalyticsServiceImpl) GetSessionMetrics(ctx context.Context, propertyID
 	fmt.Printf("✅ セッションメトリクス取得完了: %d レコード\n", response.RowCount)
 
 	return &ReportData{
-		Headers: headers,
-		Rows:    rows,
+		Headers:    headers,
+		Rows:       rows,
+		StreamURLs: make(map[string]string), // 空のマッピング
 		Summary: ReportSummary{
 			TotalRows:  int(response.RowCount),
 			DateRange:  fmt.Sprintf("%s - %s", startDate, endDate),
@@ -607,8 +620,9 @@ func (a *AnalyticsServiceImpl) GetUserMetrics(ctx context.Context, propertyID, s
 	fmt.Printf("✅ ユーザーメトリクス取得完了: %d レコード\n", response.RowCount)
 
 	return &ReportData{
-		Headers: headers,
-		Rows:    rows,
+		Headers:    headers,
+		Rows:       rows,
+		StreamURLs: make(map[string]string), // 空のマッピング
 		Summary: ReportSummary{
 			TotalRows:  int(response.RowCount),
 			DateRange:  fmt.Sprintf("%s - %s", startDate, endDate),
