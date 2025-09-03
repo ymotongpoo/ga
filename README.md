@@ -1,12 +1,12 @@
 <!--
  Copyright 2025 Yoshi Yamaguchi
- 
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
- 
+
      https://www.apache.org/licenses/LICENSE-2.0
- 
+
  Unless required by applicable law or agreed to in writing, software
  distributed under the License is distributed on an "AS IS" BASIS,
  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,9 +25,10 @@ Google Analytics 4 (GA4) を使用して、WebサイトのURLごとのトラッ�
 - **新規ユーザー数**の取得
 - **セッションあたりの平均エンゲージメント時間**の取得
 - **YAML設定ファイル**による柔軟な設定
-- **CSV形式**でのデータ出力
+- **CSV・JSON形式**でのデータ出力
+- **URL結合機能**（base_url + pagePath）
 - **複数プロパティ**の並行データ取得
-- **OAuth2認証**によるセキュアなAPI接続
+- **OAuth2オフラインアクセスフロー**によるセキュアなAPI接続
 
 ## 前提条件
 
@@ -76,7 +77,15 @@ export GA_CLIENT_SECRET="your-client-secret"
 ga --login
 ```
 
-ブラウザが開き、Google アカウントでの認証を求められます。認証完了後、認証トークンがローカルに保存されます。
+OAuth2オフラインアクセスフローを使用した認証プロセス：
+
+1. ローカルHTTPサーバー（`http://localhost:8080/callback`）が起動
+2. ブラウザが自動で開き、Google アカウントでの認証を求められます
+3. 認証完了後、リダイレクトでローカルサーバーが認証コードを受信
+4. 認証トークン（リフレッシュトークン含む）がローカルに安全に保存
+5. ローカルサーバーが自動停止
+
+認証トークンは自動更新されるため、通常は再認証の必要はありません。
 
 ## 使用方法
 
@@ -92,6 +101,12 @@ ga --config custom.yaml
 # CSVファイルに出力
 ga --output data.csv
 
+# JSON形式で出力
+ga --format json
+
+# JSON形式でファイルに出力
+ga --format json --output data.json
+
 # デバッグモードで実行
 ga --debug
 ```
@@ -102,6 +117,7 @@ ga --debug
 |-----------|--------|------|
 | `--config PATH` | | 設定ファイルのパス（デフォルト: ga.yaml） |
 | `--output PATH` | | 出力ファイルのパス（未指定時は標準出力） |
+| `--format FORMAT` | | 出力形式（csv または json、デフォルト: csv） |
 | `--debug` | | デバッグモードを有効にする |
 | `--login` | | OAuth認証を実行する |
 | `--help` | `-h` | ヘルプメッセージを表示 |
@@ -120,6 +136,7 @@ properties:
   - property: "987654321"  # プロパティID
     streams:
       - stream: "1234567"  # データストリームID
+        base_url: "https://example.com"  # ストリームのベースURL（オプション）
         dimensions:        # 取得するディメンション
           - "date"
           - "pagePath"
@@ -141,6 +158,7 @@ properties:
   - property: "987654321"
     streams:
       - stream: "1234567"
+        base_url: "https://example.com"
         dimensions:
           - "date"
           - "pagePath"
@@ -151,6 +169,7 @@ properties:
   - property: "111222333"
     streams:
       - stream: "7654321"
+        base_url: "https://another-site.com"
         dimensions:
           - "date"
           - "deviceCategory"
@@ -173,30 +192,105 @@ properties:
 | ディメンション名 | 説明 |
 |----------------|------|
 | `date` | 日付 |
-| `pagePath` | ページパス |
+| `pagePath` | ページパス（base_urlと結合されてfullURLとして出力） |
 | `deviceCategory` | デバイスカテゴリ |
 | `country` | 国 |
 | `city` | 都市 |
+
+### URL結合機能
+
+`pagePath`ディメンションを使用する場合、ストリーム設定で`base_url`を指定することで、完全なURLとして出力できます：
+
+- **base_url設定あり**: `base_url` + `pagePath` = `fullURL`として出力
+- **base_url設定なし**: `pagePath`がそのまま出力
+- **絶対URL**: `pagePath`が`http://`または`https://`で始まる場合はそのまま出力
+
+#### URL結合の例
+
+```yaml
+streams:
+  - stream: "1234567"
+    base_url: "https://example.com"
+    dimensions:
+      - "date"
+      - "pagePath"
+```
+
+| pagePath | base_url | 出力（fullURL） |
+|----------|----------|----------------|
+| `/home` | `https://example.com` | `https://example.com/home` |
+| `/about/` | `https://example.com/` | `https://example.com/about/` |
+| `https://external.com/page` | `https://example.com` | `https://external.com/page` |
+| `` (空) | `https://example.com` | `https://example.com` |
 
 ## 出力形式
 
 ### CSV出力例
 
 ```csv
-property_id,date,pagePath,sessions,activeUsers,newUsers,averageSessionDuration
-987654321,20240101,/,1250,1100,850,120.5
-987654321,20240101,/about,450,420,380,95.2
-987654321,20240102,/,1180,1050,800,115.3
+property_id,date,fullURL,sessions,activeUsers,newUsers,averageSessionDuration
+987654321,20240101,https://example.com/,1250,1100,850,120.5
+987654321,20240101,https://example.com/about,450,420,380,95.2
+987654321,20240102,https://example.com/,1180,1050,800,115.3
+```
+
+### JSON出力例
+
+```json
+[
+  {
+    "dimensions": {
+      "date": "20240101",
+      "fullURL": "https://example.com/"
+    },
+    "metrics": {
+      "sessions": "1250",
+      "activeUsers": "1100",
+      "newUsers": "850",
+      "averageSessionDuration": "120.5"
+    },
+    "metadata": {
+      "retrieved_at": "2024-02-01T10:30:00Z",
+      "property_id": "987654321",
+      "stream_id": "1234567",
+      "date_range": "2024-01-01 to 2024-01-31"
+    }
+  },
+  {
+    "dimensions": {
+      "date": "20240101",
+      "fullURL": "https://example.com/about"
+    },
+    "metrics": {
+      "sessions": "450",
+      "activeUsers": "420",
+      "newUsers": "380",
+      "averageSessionDuration": "95.2"
+    },
+    "metadata": {
+      "retrieved_at": "2024-02-01T10:30:00Z",
+      "property_id": "987654321",
+      "stream_id": "1234567",
+      "date_range": "2024-01-01 to 2024-01-31"
+    }
+  }
+]
 ```
 
 ### 出力先の指定
 
 ```bash
-# 標準出力（デフォルト）
+# 標準出力（デフォルト、CSV形式）
 ga
 
-# ファイル出力
+# CSV形式でファイル出力
 ga --output data.csv
+
+# JSON形式で標準出力
+ga --format json
+
+# JSON形式でファイル出力
+ga --format json --output data.json
 
 # パイプでの利用
 ga | head -10
