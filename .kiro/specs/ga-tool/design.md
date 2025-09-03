@@ -2,7 +2,7 @@
 
 ## 概要
 
-Googlelytics 4 (GA4) トラッキングツールは、GoでCLIアプリケーションとして実装されます。OAuth認証、YAML設定ファイル処理、Google Analytics 4 API統合、CSV出力機能を提供し、Webサイトのトラッキングデータを効率的に取得・分析できるツールです。
+Google Analytics 4 (GA4) トラッキングツールは、GoでCLIアプリケーションとして実装されます。OAuth認証、YAML設定ファイル処理、Google Analytics 4 API統合、CSV・JSON出力機能を提供し、Webサイトのトラッキングデータを効率的に取得・分析できるツールです。
 
 ## アーキテクチャ
 
@@ -25,6 +25,7 @@ graph TB
     Analytics --> Retry[Retry Logic]
 
     Output --> CSV[CSV Writer]
+    Output --> JSON[JSON Writer]
     Output --> Console[Console Output]
 
     GA4 --> API[Google Analytics 4 API]
@@ -56,12 +57,13 @@ type Command struct {
 }
 
 type CLIOptions struct {
-    ConfigPath  string
-    OutputPath  string
-    Debug       bool
-    Help        bool
-    Version     bool
-    Login       bool
+    ConfigPath   string
+    OutputPath   string
+    OutputFormat string  // "csv" または "json"
+    Debug        bool
+    Help         bool
+    Version      bool
+    Login        bool
 }
 ```
 
@@ -132,6 +134,7 @@ type Property struct {
 
 type Stream struct {
     ID         string   `yaml:"stream"`
+    BaseURL    string   `yaml:"base_url,omitempty"`
     Dimensions []string `yaml:"dimensions"`
     Metrics    []string `yaml:"metrics"`
 }
@@ -158,6 +161,7 @@ type ReportData struct {
     Headers []string
     Rows    [][]string
     Summary ReportSummary
+    StreamURLs map[string]string // ストリームID -> ベースURL のマッピング
 }
 
 type ReportSummary struct {
@@ -177,20 +181,54 @@ type ReportSummary struct {
 ```go
 type OutputService interface {
     WriteCSV(data *ReportData, writer io.Writer) error
-    WriteToFile(data *ReportData, filename string) error
-    WriteToConsole(data *ReportData) error
+    WriteJSON(data *ReportData, writer io.Writer) error
+    WriteToFile(data *ReportData, filename string, format OutputFormat) error
+    WriteToConsole(data *ReportData, format OutputFormat) error
 }
+
+type OutputFormat int
+
+const (
+    FormatCSV OutputFormat = iota
+    FormatJSON
+)
 
 type CSVWriter struct {
     encoding string
     delimiter rune
 }
+
+type JSONWriter struct {
+    encoding string
+    indent   string
+}
+
+type URLProcessor struct {
+    streamURLs map[string]string
+}
+
+func (up *URLProcessor) ProcessPagePath(streamID, pagePath string) string
+
+type JSONRecord struct {
+    Dimensions map[string]string `json:"dimensions"`
+    Metrics    map[string]string `json:"metrics"`
+    Metadata   JSONMetadata      `json:"metadata"`
+}
+
+type JSONMetadata struct {
+    RetrievedAt  string `json:"retrieved_at"`
+    PropertyID   string `json:"property_id"`
+    StreamID     string `json:"stream_id,omitempty"`
+    DateRange    string `json:"date_range"`
+}
 ```
 
 **責任:**
-- CSV形式でのデータ出力
+- CSV形式とJSON形式でのデータ出力
 - ファイル出力と標準出力の管理
 - UTF-8エンコーディング処理
+- ストリームURLとpagePathの結合処理
+- JSON構造化データの生成
 
 ## データモデル
 
@@ -205,6 +243,7 @@ properties:
   - property: "987654321"
     streams:
       - stream: "1234567"
+        base_url: "https://example.com"  # オプション: ストリームのベースURL
         dimensions:
           - "date"
           - "pagePath"
@@ -234,12 +273,85 @@ type MetricValue struct {
 }
 ```
 
-### 3. CSV出力データモデル
+### 3. 出力データモデル
+
+#### CSV出力形式
 
 ```csv
-date,pagePath,sessions,activeUsers,newUsers,averageSessionDuration
-2023-01-01,/home,1250,1100,850,120.5
-2023-01-01,/about,450,420,380,95.2
+date,fullURL,sessions,activeUsers,newUsers,averageSessionDuration
+2023-01-01,https://example.com/home,1250,1100,850,120.5
+2023-01-01,https://example.com/about,450,420,380,95.2
+```
+
+#### JSON出力形式
+
+```json
+[
+  {
+    "dimensions": {
+      "date": "2023-01-01",
+      "fullURL": "https://example.com/home"
+    },
+    "metrics": {
+      "sessions": "1250",
+      "activeUsers": "1100",
+      "newUsers": "850",
+      "averageSessionDuration": "120.5"
+    },
+    "metadata": {
+      "retrieved_at": "2023-02-01T10:30:00Z",
+      "property_id": "987654321",
+      "stream_id": "1234567",
+      "date_range": "2023-01-01 to 2023-01-31"
+    }
+  },
+  {
+    "dimensions": {
+      "date": "2023-01-01",
+      "fullURL": "https://example.com/about"
+    },
+    "metrics": {
+      "sessions": "450",
+      "activeUsers": "420",
+      "newUsers": "380",
+      "averageSessionDuration": "95.2"
+    },
+    "metadata": {
+      "retrieved_at": "2023-02-01T10:30:00Z",
+      "property_id": "987654321",
+      "stream_id": "1234567",
+      "date_range": "2023-01-01 to 2023-01-31"
+    }
+  }
+]
+```
+
+### 4. URL結合処理ロジック
+
+```go
+// URL結合処理の例
+func ProcessPagePath(baseURL, pagePath string) string {
+    // 絶対URLの場合はそのまま返す
+    if strings.HasPrefix(pagePath, "http://") || strings.HasPrefix(pagePath, "https://") {
+        return pagePath
+    }
+
+    // ベースURLが設定されていない場合はpagePathをそのまま返す
+    if baseURL == "" {
+        return pagePath
+    }
+
+    // pagePathが空の場合はベースURLのみ返す
+    if pagePath == "" {
+        return baseURL
+    }
+
+    // スラッシュの重複を処理してURL結合
+    baseURL = strings.TrimSuffix(baseURL, "/")
+    pagePath = strings.TrimPrefix(pagePath, "/")
+
+    return fmt.Sprintf("%s/%s", baseURL, pagePath)
+}
 ```
 
 ## エラーハンドリング

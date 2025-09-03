@@ -1,11 +1,11 @@
 // Copyright 2025 Yoshi Yamaguchi
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     https://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -176,7 +176,7 @@ func TestWriteToFile(t *testing.T) {
 	tempFile := "test_output.csv"
 	defer os.Remove(tempFile) // テスト後にファイルを削除
 
-	err := service.WriteToFile(data, tempFile)
+	err := service.WriteToFile(data, tempFile, FormatCSV)
 	if err != nil {
 		t.Fatalf("WriteToFile() failed: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestWriteToFile_EmptyFilename(t *testing.T) {
 	service := NewOutputService()
 	data := createTestReportData()
 
-	err := service.WriteToFile(data, "")
+	err := service.WriteToFile(data, "", FormatCSV)
 	if err == nil {
 		t.Fatal("WriteToFile() with empty filename should return error")
 	}
@@ -226,7 +226,7 @@ func TestWriteToFile_InvalidPath(t *testing.T) {
 
 	// 存在しないディレクトリへの書き込みを試行
 	invalidPath := "/nonexistent/directory/output.csv"
-	err := service.WriteToFile(data, invalidPath)
+	err := service.WriteToFile(data, invalidPath, FormatCSV)
 	if err == nil {
 		t.Fatal("WriteToFile() with invalid path should return error")
 	}
@@ -251,7 +251,7 @@ func TestWriteToConsole(t *testing.T) {
 	rErr, wErr, _ := os.Pipe()
 	os.Stderr = wErr
 
-	err := service.WriteToConsole(data)
+	err := service.WriteToConsole(data, FormatCSV)
 
 	// 標準出力を復元
 	w.Close()
@@ -326,7 +326,7 @@ func TestGetOutputSummary(t *testing.T) {
 
 	// 正常なデータのテスト
 	data := createTestReportData()
-	summary := service.GetOutputSummary(data)
+	summary := service.GetOutputSummary(data, FormatCSV)
 
 	expectedStrings := []string{
 		"CSV出力サマリー:",
@@ -344,7 +344,7 @@ func TestGetOutputSummary(t *testing.T) {
 	}
 
 	// nilデータのテスト
-	nilSummary := service.GetOutputSummary(nil)
+	nilSummary := service.GetOutputSummary(nil, FormatCSV)
 	if nilSummary != "データなし" {
 		t.Errorf("Expected 'データなし' for nil data, got: %s", nilSummary)
 	}
@@ -400,13 +400,13 @@ func TestWriteOutput_ToConsole(t *testing.T) {
 	os.Stderr = wErr
 
 	// 空文字列（標準出力）
-	err := service.WriteOutput(data, "")
+	err := service.WriteOutput(data, "", FormatCSV)
 	if err != nil {
 		t.Fatalf("WriteOutput() to console failed: %v", err)
 	}
 
 	// "-"（標準出力）
-	err = service.WriteOutput(data, "-")
+	err = service.WriteOutput(data, "-", FormatCSV)
 	if err != nil {
 		t.Fatalf("WriteOutput() to console with '-' failed: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestWriteOutput_ToFile(t *testing.T) {
 	tempFile := "test_write_output.csv"
 	defer os.Remove(tempFile)
 
-	err := service.WriteOutput(data, tempFile)
+	err := service.WriteOutput(data, tempFile, FormatCSV)
 	if err != nil {
 		t.Fatalf("WriteOutput() to file failed: %v", err)
 	}
@@ -466,14 +466,14 @@ func TestWriteOutput_InvalidData(t *testing.T) {
 	service := NewOutputService()
 
 	// nilデータのテスト
-	err := service.WriteOutput(nil, "test.csv")
+	err := service.WriteOutput(nil, "test.csv", FormatCSV)
 	if err == nil {
 		t.Error("WriteOutput() with nil data should return error")
 	}
 
 	// 無効なデータのテスト
 	invalidData := createInvalidReportData()
-	err = service.WriteOutput(invalidData, "test.csv")
+	err = service.WriteOutput(invalidData, "test.csv", FormatCSV)
 	if err == nil {
 		t.Error("WriteOutput() with invalid data should return error")
 	}
@@ -488,7 +488,7 @@ func TestWriteToFileWithErrorHandling_DirectoryCreation(t *testing.T) {
 	testFile := testDir + "/output.csv"
 	defer os.RemoveAll(testDir) // テスト後にディレクトリを削除
 
-	err := service.WriteToFileWithErrorHandling(data, testFile)
+	err := service.WriteToFileWithErrorHandling(data, testFile, FormatCSV)
 	if err != nil {
 		t.Fatalf("WriteToFileWithErrorHandling() with directory creation failed: %v", err)
 	}

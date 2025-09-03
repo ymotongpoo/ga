@@ -54,18 +54,30 @@ Google Analytics 4 (GA4) を使用して、WebサイトのURLごとのトラッ�
 3. WHEN APIリクエストが失敗する THEN システムは適切なエラーメッセージとリトライ機能を提供する SHALL
 4. WHEN データ取得が完了する THEN システムは取得したレコード数を表示する SHALL
 5. WHEN 複数のプロパティが設定されている THEN システムは各プロパティのデータを個別に取得する SHALL
+6. WHEN pagePathディメンションが含まれる THEN システムはGoogle Analytics Management APIを使用してストリーム情報を取得する SHALL
+7. WHEN ストリーム情報を取得する THEN システムはストリームURLを含むメタデータを取得する SHALL
 
-### Requirement 4: CSV出力機能
+### Requirement 4: データ出力機能
 
-**User Story:** データアナリストとして、取得したデータを他のツールで分析するために、CSV形式で出力したい。
+**User Story:** データアナリストとして、取得したデータを他のツールで分析するために、CSV形式またはJSON形式で出力したい。
 
 #### Acceptance Criteria
 
-1. WHEN データ取得が完了する THEN システムはCSV形式でデータを出力する SHALL
-2. WHEN CSV出力が実行される THEN ヘッダー行を含む適切な形式で出力する SHALL
-3. WHEN 出力先が指定されない THEN システムは標準出力にデータを出力する SHALL
-4. IF 出力ファイルが指定される THEN システムは指定されたファイルにデータを保存する SHALL
-5. WHEN 日本語データが含まれる THEN システムはUTF-8エンコーディングで出力する SHALL
+1. WHEN データ取得が完了する THEN システムはデフォルトでCSV形式でデータを出力する SHALL
+2. WHEN `--format json` オプションが指定される THEN システムはJSON形式でデータを出力する SHALL
+3. WHEN `--format csv` オプションが指定される THEN システムはCSV形式でデータを出力する SHALL
+4. WHEN 無効な出力形式が指定される THEN システムは適切なエラーメッセージを表示する SHALL
+5. WHEN CSV出力が実行される THEN ヘッダー行を含む適切な形式で出力する SHALL
+6. WHEN JSON出力が実行される THEN 構造化されたJSON配列形式で出力する SHALL
+7. WHEN 出力先が指定されない THEN システムは標準出力にデータを出力する SHALL
+8. IF 出力ファイルが指定される THEN システムは指定されたファイルにデータを保存する SHALL
+9. WHEN 日本語データが含まれる THEN システムはUTF-8エンコーディングで出力する SHALL
+10. WHEN pagePathディメンションが含まれる THEN システムはストリームURLとpagePathを結合してフルURLを出力する SHALL
+11. WHEN ストリームURLの取得が必要な場合 THEN システムはGoogle Analytics Management APIを使用してストリームURLを取得する SHALL
+12. WHEN JSON出力が実行される THEN 各レコードは以下の構造を持つ SHALL:
+    - dimensions: ディメンション名と値のキー・バリューペア
+    - metrics: メトリクス名と値のキー・バリューペア
+    - metadata: 取得日時やプロパティ情報などのメタデータ
 
 ### Requirement 5: エラーハンドリングとログ
 
@@ -79,7 +91,21 @@ Google Analytics 4 (GA4) を使用して、WebサイトのURLごとのトラッ�
 4. IF デバッグモードが有効になっている THEN システムは詳細なログ情報を出力する SHALL
 5. WHEN 致命的なエラーが発生する THEN システムは適切な終了コード（非ゼロ）で終了する SHALL
 
-### Requirement 6: コマンドラインインターフェース
+### Requirement 6: URL結合機能
+
+**User Story:** データアナリストとして、CSV出力でページの完全なURLを確認するために、ストリームのベースURLとpagePathを結合した形で表示したい。
+
+#### Acceptance Criteria
+
+1. WHEN ストリーム設定にbase_urlが指定されている THEN システムはpagePathとbase_urlを結合する SHALL
+2. WHEN pagePathが相対パス（/で始まる）である THEN システムはbase_urlとpagePathを適切に結合する SHALL
+3. WHEN pagePathが絶対URL（http://またはhttps://で始まる）である THEN システムはpagePathをそのまま使用する SHALL
+4. WHEN base_urlが設定されていない THEN システムはpagePathをそのまま出力する SHALL
+5. WHEN CSV出力が実行される THEN 結合されたフルURLが出力される SHALL
+6. WHEN base_urlの末尾にスラッシュがある場合 THEN システムは重複スラッシュを適切に処理する SHALL
+7. WHEN pagePathが空文字列またはnullの場合 THEN システムはbase_urlのみを出力する SHALL
+
+### Requirement 7: コマンドラインインターフェース
 
 **User Story:** ユーザーとして、直感的で使いやすいコマンドラインインターフェースを通じてツールを操作したい。
 
@@ -90,3 +116,6 @@ Google Analytics 4 (GA4) を使用して、WebサイトのURLごとのトラッ�
 3. WHEN ユーザーが `ga` を実行する THEN システムは `ga.yaml` を使用してデータ取得を開始する SHALL
 4. WHEN 無効なオプションが指定される THEN システムは適切なエラーメッセージとヘルプ情報を表示する SHALL
 5. WHEN ユーザーが設定ファイルパスを指定する THEN システムは `--config` オプションでカスタム設定ファイルを受け入れる SHALL
+6. WHEN ユーザーが出力形式を指定する THEN システムは `--format` オプションで `csv` または `json` を受け入れる SHALL
+7. WHEN ユーザーが出力ファイルを指定する THEN システムは `--output` オプションでファイルパスを受け入れる SHALL
+8. WHEN `--format` オプションが省略される THEN システムはデフォルトでCSV形式を使用する SHALL

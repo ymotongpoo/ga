@@ -1,11 +1,11 @@
 // Copyright 2025 Yoshi Yamaguchi
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     https://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,25 +16,61 @@ package output
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ymotongpoo/ga/internal/analytics"
 )
+
+// OutputFormat は出力形式を表す列挙型
+type OutputFormat int
+
+const (
+	FormatCSV OutputFormat = iota
+	FormatJSON
+)
+
+// String はOutputFormatの文字列表現を返す
+func (f OutputFormat) String() string {
+	switch f {
+	case FormatCSV:
+		return "csv"
+	case FormatJSON:
+		return "json"
+	default:
+		return "unknown"
+	}
+}
+
+// ParseOutputFormat は文字列から OutputFormat を解析する
+func ParseOutputFormat(format string) (OutputFormat, error) {
+	switch strings.ToLower(format) {
+	case "csv":
+		return FormatCSV, nil
+	case "json":
+		return FormatJSON, nil
+	default:
+		return FormatCSV, fmt.Errorf("無効な出力形式: %s (csv または json を指定してください)", format)
+	}
+}
 
 // OutputService はデータ出力を提供するインターフェース
 type OutputService interface {
 	// WriteCSV はReportDataをCSV形式でWriterに出力する
 	WriteCSV(data *analytics.ReportData, writer io.Writer) error
-	// WriteToFile はReportDataをCSV形式でファイルに出力する
-	WriteToFile(data *analytics.ReportData, filename string) error
-	// WriteToConsole はReportDataをCSV形式で標準出力に出力する
-	WriteToConsole(data *analytics.ReportData) error
-	// WriteOutput は出力先に応じて適切な出力方法を選択する
-	WriteOutput(data *analytics.ReportData, outputPath string) error
+	// WriteJSON はReportDataをJSON形式でWriterに出力する
+	WriteJSON(data *analytics.ReportData, writer io.Writer) error
+	// WriteToFile はReportDataを指定された形式でファイルに出力する
+	WriteToFile(data *analytics.ReportData, filename string, format OutputFormat) error
+	// WriteToConsole はReportDataを指定された形式で標準出力に出力する
+	WriteToConsole(data *analytics.ReportData, format OutputFormat) error
+	// WriteOutput は出力先と形式に応じて適切な出力方法を選択する
+	WriteOutput(data *analytics.ReportData, outputPath string, format OutputFormat) error
 }
 
 // CSVWriter はCSV出力を行う構造体
@@ -43,9 +79,31 @@ type CSVWriter struct {
 	delimiter rune
 }
 
+// JSONWriter はJSON出力を行う構造体
+type JSONWriter struct {
+	encoding string
+	indent   string
+}
+
+// JSONRecord はJSON出力用のレコード構造体
+type JSONRecord struct {
+	Dimensions map[string]string `json:"dimensions"`
+	Metrics    map[string]string `json:"metrics"`
+	Metadata   JSONMetadata      `json:"metadata"`
+}
+
+// JSONMetadata はJSON出力用のメタデータ構造体
+type JSONMetadata struct {
+	RetrievedAt string `json:"retrieved_at"`
+	PropertyID  string `json:"property_id,omitempty"`
+	StreamID    string `json:"stream_id,omitempty"`
+	DateRange   string `json:"date_range"`
+}
+
 // OutputServiceImpl はOutputServiceの実装
 type OutputServiceImpl struct {
-	csvWriter *CSVWriter
+	csvWriter  *CSVWriter
+	jsonWriter *JSONWriter
 }
 
 // NewOutputService は新しいOutputServiceを作成する
@@ -54,6 +112,10 @@ func NewOutputService() OutputService {
 		csvWriter: &CSVWriter{
 			encoding:  "UTF-8",
 			delimiter: ',',
+		},
+		jsonWriter: &JSONWriter{
+			encoding: "UTF-8",
+			indent:   "  ",
 		},
 	}
 }
@@ -91,23 +153,128 @@ func (o *OutputServiceImpl) WriteCSV(data *analytics.ReportData, writer io.Write
 	return nil
 }
 
-// WriteToFile はReportDataをCSV形式でファイルに出力する
-func (o *OutputServiceImpl) WriteToFile(data *analytics.ReportData, filename string) error {
-	return o.WriteToFileWithErrorHandling(data, filename)
+// WriteJSON はReportDataをJSON形式でWriterに出力する
+func (o *OutputServiceImpl) WriteJSON(data *analytics.ReportData, writer io.Writer) error {
+	if data == nil {
+		return fmt.Errorf("出力データがnilです")
+	}
+
+	// JSON レコードの配列を作成
+	var records []JSONRecord
+
+	// 現在時刻を取得
+	retrievedAt := time.Now().UTC().Format(time.RFC3339)
+
+	// 各データ行をJSONレコードに変換
+	for _, row := range data.Rows {
+		if len(row) != len(data.Headers) {
+			continue // 不正な行はスキップ
+		}
+
+		record := JSONRecord{
+			Dimensions: make(map[string]string),
+			Metrics:    make(map[string]string),
+			Metadata: JSONMetadata{
+				RetrievedAt: retrievedAt,
+				DateRange:   data.Summary.DateRange,
+			},
+		}
+
+		// ヘッダーと値をマッピング
+		for i, header := range data.Headers {
+			value := ""
+			if i < len(row) {
+				value = row[i]
+			}
+
+			// ディメンションとメトリクスを分類
+			// 一般的なディメンション名をチェック
+			if isDimension(header) {
+				record.Dimensions[header] = value
+			} else {
+				record.Metrics[header] = value
+			}
+		}
+
+		records = append(records, record)
+	}
+
+	// JSON エンコーダーを作成
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", o.jsonWriter.indent)
+
+	// JSON配列として出力
+	if err := encoder.Encode(records); err != nil {
+		return fmt.Errorf("JSON書き込み中にエラーが発生しました: %w", err)
+	}
+
+	return nil
 }
 
-// WriteToConsole はReportDataをCSV形式で標準出力に出力する
-func (o *OutputServiceImpl) WriteToConsole(data *analytics.ReportData) error {
+// isDimension はヘッダー名がディメンションかどうかを判定する
+func isDimension(header string) bool {
+	// 一般的なディメンション名のリスト
+	dimensions := []string{
+		"date", "pagePath", "fullURL", "country", "city", "browser",
+		"operatingSystem", "deviceCategory", "channelGrouping", "source",
+		"medium", "campaign", "landingPage", "exitPage", "eventName",
+	}
+
+	headerLower := strings.ToLower(header)
+	for _, dim := range dimensions {
+		if strings.ToLower(dim) == headerLower {
+			return true
+		}
+	}
+
+	// メトリクス名の場合はfalseを返す
+	metrics := []string{
+		"sessions", "activeUsers", "newUsers", "averageSessionDuration",
+		"engagementRateDuration", "bounceRate", "pageviews", "screenPageViews",
+		"eventCount", "conversions", "totalRevenue",
+	}
+
+	for _, metric := range metrics {
+		if strings.ToLower(metric) == headerLower {
+			return false
+		}
+	}
+
+	// 不明な場合はディメンションとして扱う
+	return true
+}
+
+// WriteToFile はReportDataを指定された形式でファイルに出力する
+func (o *OutputServiceImpl) WriteToFile(data *analytics.ReportData, filename string, format OutputFormat) error {
+	return o.WriteToFileWithErrorHandling(data, filename, format)
+}
+
+// WriteToConsole はReportDataを指定された形式で標準出力に出力する
+func (o *OutputServiceImpl) WriteToConsole(data *analytics.ReportData, format OutputFormat) error {
 	// 標準出力への書き込み前にサマリー情報を標準エラー出力に表示
-	fmt.Fprintf(os.Stderr, "📊 CSV出力を標準出力に書き込みます...\n")
-	fmt.Fprintf(os.Stderr, "   - 総行数: %d行 (ヘッダー含む)\n", len(data.Rows)+1)
+	formatName := format.String()
+	fmt.Fprintf(os.Stderr, "📊 %s出力を標準出力に書き込みます...\n", strings.ToUpper(formatName))
+	fmt.Fprintf(os.Stderr, "   - 総行数: %d行", len(data.Rows))
+	if format == FormatCSV {
+		fmt.Fprintf(os.Stderr, " (ヘッダー含む)")
+	}
+	fmt.Fprintf(os.Stderr, "\n")
 	fmt.Fprintf(os.Stderr, "   - 列数: %d列\n", len(data.Headers))
 	fmt.Fprintf(os.Stderr, "   - 期間: %s\n", data.Summary.DateRange)
 	fmt.Fprintf(os.Stderr, "\n")
 
-	// CSV形式で標準出力に書き込み
-	if err := o.WriteCSV(data, os.Stdout); err != nil {
-		return fmt.Errorf("標準出力への書き込みに失敗しました: %w", err)
+	// 指定された形式で標準出力に書き込み
+	switch format {
+	case FormatCSV:
+		if err := o.WriteCSV(data, os.Stdout); err != nil {
+			return fmt.Errorf("CSV標準出力への書き込みに失敗しました: %w", err)
+		}
+	case FormatJSON:
+		if err := o.WriteJSON(data, os.Stdout); err != nil {
+			return fmt.Errorf("JSON標準出力への書き込みに失敗しました: %w", err)
+		}
+	default:
+		return fmt.Errorf("サポートされていない出力形式です: %s", format)
 	}
 
 	return nil
@@ -134,8 +301,8 @@ func (o *OutputServiceImpl) ValidateData(data *analytics.ReportData) error {
 	return nil
 }
 
-// WriteOutput は出力先に応じて適切な出力方法を選択する
-func (o *OutputServiceImpl) WriteOutput(data *analytics.ReportData, outputPath string) error {
+// WriteOutput は出力先と形式に応じて適切な出力方法を選択する
+func (o *OutputServiceImpl) WriteOutput(data *analytics.ReportData, outputPath string, format OutputFormat) error {
 	// データの妥当性を検証
 	if err := o.ValidateData(data); err != nil {
 		return fmt.Errorf("出力データの検証に失敗しました: %w", err)
@@ -143,15 +310,15 @@ func (o *OutputServiceImpl) WriteOutput(data *analytics.ReportData, outputPath s
 
 	// 出力先が指定されていない場合は標準出力
 	if outputPath == "" || outputPath == "-" {
-		return o.WriteToConsole(data)
+		return o.WriteToConsole(data, format)
 	}
 
 	// ファイル出力の場合
-	return o.WriteToFileWithErrorHandling(data, outputPath)
+	return o.WriteToFileWithErrorHandling(data, outputPath, format)
 }
 
 // WriteToFileWithErrorHandling はエラーハンドリングを強化したファイル出力
-func (o *OutputServiceImpl) WriteToFileWithErrorHandling(data *analytics.ReportData, filename string) error {
+func (o *OutputServiceImpl) WriteToFileWithErrorHandling(data *analytics.ReportData, filename string, format OutputFormat) error {
 	if filename == "" {
 		return fmt.Errorf("ファイル名が指定されていません")
 	}
@@ -182,17 +349,28 @@ func (o *OutputServiceImpl) WriteToFileWithErrorHandling(data *analytics.ReportD
 		}
 	}()
 
-	// CSV形式で書き込み
-	if err := o.WriteCSV(data, file); err != nil {
+	// 指定された形式で書き込み
+	var writeErr error
+	switch format {
+	case FormatCSV:
+		writeErr = o.WriteCSV(data, file)
+	case FormatJSON:
+		writeErr = o.WriteJSON(data, file)
+	default:
+		writeErr = fmt.Errorf("サポートされていない出力形式です: %s", format)
+	}
+
+	if writeErr != nil {
 		// 書き込みエラーの場合、部分的に作成されたファイルを削除
 		if removeErr := os.Remove(filename); removeErr != nil {
 			fmt.Fprintf(os.Stderr, "警告: 不完全なファイル '%s' の削除に失敗しました: %v\n", filename, removeErr)
 		}
-		return fmt.Errorf("ファイル '%s' への書き込みに失敗しました: %w", filename, err)
+		return fmt.Errorf("ファイル '%s' への書き込みに失敗しました: %w", filename, writeErr)
 	}
 
 	// 出力完了メッセージ
-	fmt.Printf("📄 CSV出力が完了しました: %s\n", filename)
+	formatName := strings.ToUpper(format.String())
+	fmt.Printf("📄 %s出力が完了しました: %s\n", formatName, filename)
 	fmt.Printf("   - 総行数: %d行 (ヘッダー含む)\n", len(data.Rows)+1)
 	fmt.Printf("   - 列数: %d列\n", len(data.Headers))
 	fmt.Printf("   - ファイルサイズ: ")
@@ -222,9 +400,10 @@ func (o *OutputServiceImpl) validateFilePath(filename string) error {
 		}
 	}
 
-	// 拡張子のチェック（.csvを推奨）
-	if !strings.HasSuffix(strings.ToLower(filename), ".csv") {
-		fmt.Fprintf(os.Stderr, "⚠️  ファイル拡張子が .csv ではありません: %s\n", filename)
+	// 拡張子のチェック（.csv または .json を推奨）
+	lowerFilename := strings.ToLower(filename)
+	if !strings.HasSuffix(lowerFilename, ".csv") && !strings.HasSuffix(lowerFilename, ".json") {
+		fmt.Fprintf(os.Stderr, "⚠️  ファイル拡張子が .csv または .json ではありません: %s\n", filename)
 	}
 
 	return nil
@@ -272,14 +451,21 @@ func (o *OutputServiceImpl) handleFileCreationError(filename string, err error) 
 }
 
 // GetOutputSummary は出力データのサマリー情報を取得する
-func (o *OutputServiceImpl) GetOutputSummary(data *analytics.ReportData) string {
+func (o *OutputServiceImpl) GetOutputSummary(data *analytics.ReportData, format OutputFormat) string {
 	if data == nil {
 		return "データなし"
 	}
 
-	summary := fmt.Sprintf("CSV出力サマリー:\n")
+	formatName := strings.ToUpper(format.String())
+	summary := fmt.Sprintf("%s出力サマリー:\n", formatName)
 	summary += fmt.Sprintf("  - 総レコード数: %d\n", data.Summary.TotalRows)
-	summary += fmt.Sprintf("  - 出力行数: %d行 (ヘッダー含む)\n", len(data.Rows)+1)
+
+	if format == FormatCSV {
+		summary += fmt.Sprintf("  - 出力行数: %d行 (ヘッダー含む)\n", len(data.Rows)+1)
+	} else {
+		summary += fmt.Sprintf("  - 出力レコード数: %d\n", len(data.Rows))
+	}
+
 	summary += fmt.Sprintf("  - 列数: %d列\n", len(data.Headers))
 	summary += fmt.Sprintf("  - 期間: %s\n", data.Summary.DateRange)
 

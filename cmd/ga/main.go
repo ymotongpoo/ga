@@ -153,6 +153,7 @@ func (app *CLIApp) parseArgs(args []string) (*CLIOptions, error) {
 	// フラグの定義
 	fs.StringVar(&options.ConfigPath, "config", "ga.yaml", "設定ファイルのパス")
 	fs.StringVar(&options.OutputPath, "output", "", "出力ファイルのパス（指定しない場合は標準出力）")
+	fs.StringVar(&options.OutputFormat, "format", "csv", "出力形式 (csv または json)")
 	fs.BoolVar(&options.Debug, "debug", false, "デバッグモードを有効にする")
 	fs.BoolVar(&options.Help, "help", false, "ヘルプを表示する")
 	fs.BoolVar(&options.Version, "version", false, "バージョン情報を表示する")
@@ -176,6 +177,11 @@ func (app *CLIApp) parseArgs(args []string) (*CLIOptions, error) {
 		return nil, fmt.Errorf("設定ファイルパスが指定されていません")
 	}
 
+	// 出力形式の検証
+	if options.OutputFormat != "csv" && options.OutputFormat != "json" {
+		return nil, fmt.Errorf("無効な出力形式です: %s (csv または json を指定してください)", options.OutputFormat)
+	}
+
 	return options, nil
 }
 
@@ -189,6 +195,7 @@ func (app *CLIApp) showHelp() {
 	fmt.Println("オプション:")
 	fmt.Println("  --config PATH    設定ファイルのパス (デフォルト: ga.yaml)")
 	fmt.Println("  --output PATH    出力ファイルのパス (指定しない場合は標準出力)")
+	fmt.Println("  --format FORMAT  出力形式 (csv または json, デフォルト: csv)")
 	fmt.Println("  --debug          デバッグモードを有効にする")
 	fmt.Println("  --login          OAuth認証を実行する")
 	fmt.Println("  --help, -h       このヘルプメッセージを表示する")
@@ -198,6 +205,8 @@ func (app *CLIApp) showHelp() {
 	fmt.Println("  ga                           # デフォルト設定でデータを取得")
 	fmt.Println("  ga --config custom.yaml      # カスタム設定ファイルを使用")
 	fmt.Println("  ga --output data.csv         # CSVファイルに出力")
+	fmt.Println("  ga --format json             # JSON形式で出力")
+	fmt.Println("  ga --output data.json --format json  # JSONファイルに出力")
 	fmt.Println("  ga --login                   # OAuth認証を実行")
 }
 
@@ -235,6 +244,7 @@ func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions)
 	if options.Debug {
 		fmt.Printf("[DEBUG] 設定ファイル: %s\n", options.ConfigPath)
 		fmt.Printf("[DEBUG] 出力先: %s\n", options.OutputPath)
+		fmt.Printf("[DEBUG] 出力形式: %s\n", options.OutputFormat)
 	}
 
 	fmt.Printf("設定ファイル '%s' を使用してデータを取得します...\n", options.ConfigPath)
@@ -283,8 +293,14 @@ func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions)
 		return fmt.Errorf("データ取得に失敗しました: %w", err)
 	}
 
+	// 出力形式を解析
+	format, err := output.ParseOutputFormat(options.OutputFormat)
+	if err != nil {
+		return fmt.Errorf("出力形式の解析に失敗しました: %w", err)
+	}
+
 	// データ出力
-	if err := app.outputService.WriteOutput(reportData, options.OutputPath); err != nil {
+	if err := app.outputService.WriteOutput(reportData, options.OutputPath, format); err != nil {
 		return fmt.Errorf("データ出力に失敗しました: %w", err)
 	}
 
@@ -294,12 +310,13 @@ func (app *CLIApp) handleDataRetrieval(ctx context.Context, options *CLIOptions)
 
 // CLIOptions はコマンドライン引数を表す構造体
 type CLIOptions struct {
-	ConfigPath string
-	OutputPath string
-	Debug      bool
-	Help       bool
-	Version    bool
-	Login      bool
+	ConfigPath   string
+	OutputPath   string
+	OutputFormat string
+	Debug        bool
+	Help         bool
+	Version      bool
+	Login        bool
 }
 
 // Command はサブコマンドを表す構造体
