@@ -1,6 +1,7 @@
 ga
 test_*.yaml
 test_*.yml
+ga.yoshi.yaml
 
 CLAUDE.md
 .serena
