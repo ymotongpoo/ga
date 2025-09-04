@@ -62,6 +62,7 @@ type ReportSummary struct {
 // GA4ReportRequest はGA4 APIリクエストを表す構造体
 type GA4ReportRequest struct {
 	PropertyID string
+	StreamID   string // URL結合機能のために追加
 	StartDate  string
 	EndDate    string
 	Dimensions []string
@@ -258,6 +259,7 @@ func (a *AnalyticsServiceImpl) fetchDataConcurrently(ctx context.Context, reques
 	type result struct {
 		response   *GA4ReportResponse
 		propertyID string
+		streamID   string // ストリームIDを追加
 		err        error
 	}
 
@@ -291,6 +293,7 @@ func (a *AnalyticsServiceImpl) fetchDataConcurrently(ctx context.Context, reques
 			resultChan <- result{
 				response:   response,
 				propertyID: req.PropertyID,
+				streamID:   req.StreamID, // ストリームIDを追加
 				err:        err,
 			}
 		}(request, i)
@@ -329,8 +332,8 @@ func (a *AnalyticsServiceImpl) fetchDataConcurrently(ctx context.Context, reques
 			headers = a.buildHeaders(res.response)
 		}
 
-		// データ行を変換
-		rows := a.convertResponseToRows(res.response, res.propertyID)
+		// データ行を変換（ストリームIDも含める）
+		rows := a.convertResponseToRows(res.response, res.propertyID, res.streamID)
 		allRows = append(allRows, rows...)
 		properties = append(properties, res.propertyID)
 		totalRows += int(res.response.RowCount)
@@ -392,6 +395,7 @@ func (a *AnalyticsServiceImpl) buildReportRequests(config *config.Config) ([]*GA
 
 			request := &GA4ReportRequest{
 				PropertyID: property.ID,
+				StreamID:   stream.ID, // ストリームIDを追加
 				StartDate:  config.StartDate,
 				EndDate:    config.EndDate,
 				Dimensions: stream.Dimensions,
@@ -518,6 +522,9 @@ func (a *AnalyticsServiceImpl) buildHeaders(response *GA4ReportResponse) []strin
 	// プロパティIDを追加
 	headers = append(headers, "property_id")
 
+	// ストリームIDを追加（URL結合機能のために必要）
+	headers = append(headers, "stream_id")
+
 	// ディメンションヘッダーを追加
 	for _, dimHeader := range response.DimensionHeaders {
 		headers = append(headers, dimHeader.Name)
@@ -532,7 +539,7 @@ func (a *AnalyticsServiceImpl) buildHeaders(response *GA4ReportResponse) []strin
 }
 
 // convertResponseToRows はAPIレスポンスをCSV行に変換する
-func (a *AnalyticsServiceImpl) convertResponseToRows(response *GA4ReportResponse, propertyID string) [][]string {
+func (a *AnalyticsServiceImpl) convertResponseToRows(response *GA4ReportResponse, propertyID, streamID string) [][]string {
 	var rows [][]string
 
 	for _, row := range response.Rows {
@@ -540,6 +547,9 @@ func (a *AnalyticsServiceImpl) convertResponseToRows(response *GA4ReportResponse
 
 		// プロパティIDを追加
 		csvRow = append(csvRow, propertyID)
+
+		// ストリームIDを追加（URL結合機能のために必要）
+		csvRow = append(csvRow, streamID)
 
 		// ディメンション値を追加
 		for _, dimValue := range row.DimensionValues {
@@ -566,6 +576,7 @@ func (a *AnalyticsServiceImpl) GetSessionMetrics(ctx context.Context, propertyID
 
 	request := &GA4ReportRequest{
 		PropertyID: propertyID,
+		StreamID:   "", // セッションメトリクスではストリームIDなし
 		StartDate:  startDate,
 		EndDate:    endDate,
 		Dimensions: dimensions,
@@ -578,7 +589,7 @@ func (a *AnalyticsServiceImpl) GetSessionMetrics(ctx context.Context, propertyID
 	}
 
 	headers := a.buildHeaders(response)
-	rows := a.convertResponseToRows(response, propertyID)
+	rows := a.convertResponseToRows(response, propertyID, "") // ストリームIDなし
 
 	fmt.Printf("✅ セッションメトリクス取得完了: %d レコード\n", response.RowCount)
 
@@ -603,6 +614,7 @@ func (a *AnalyticsServiceImpl) GetUserMetrics(ctx context.Context, propertyID, s
 
 	request := &GA4ReportRequest{
 		PropertyID: propertyID,
+		StreamID:   "", // ユーザーメトリクスではストリームIDなし
 		StartDate:  startDate,
 		EndDate:    endDate,
 		Dimensions: dimensions,
@@ -615,7 +627,7 @@ func (a *AnalyticsServiceImpl) GetUserMetrics(ctx context.Context, propertyID, s
 	}
 
 	headers := a.buildHeaders(response)
-	rows := a.convertResponseToRows(response, propertyID)
+	rows := a.convertResponseToRows(response, propertyID, "") // ストリームIDなし
 
 	fmt.Printf("✅ ユーザーメトリクス取得完了: %d レコード\n", response.RowCount)
 

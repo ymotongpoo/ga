@@ -414,7 +414,7 @@ func TestAnalyticsServiceImpl_buildHeaders(t *testing.T) {
 
 	headers := service.buildHeaders(response)
 
-	expectedHeaders := []string{"property_id", "date", "pagePath", "sessions", "activeUsers"}
+	expectedHeaders := []string{"property_id", "stream_id", "date", "pagePath", "sessions", "activeUsers"}
 	if len(headers) != len(expectedHeaders) {
 		t.Errorf("buildHeaders() length = %d, want %d", len(headers), len(expectedHeaders))
 	}
@@ -444,13 +444,13 @@ func TestAnalyticsServiceImpl_convertResponseToRows(t *testing.T) {
 		},
 	}
 
-	rows := service.convertResponseToRows(response, "123456789")
+	rows := service.convertResponseToRows(response, "123456789", "stream123")
 
 	if len(rows) != 1 {
 		t.Errorf("convertResponseToRows() returned %d rows, want 1", len(rows))
 	}
 
-	expectedRow := []string{"123456789", "2023-01-01", "/home", "1250", "1100"}
+	expectedRow := []string{"123456789", "stream123", "2023-01-01", "/home", "1250", "1100"}
 	if len(rows[0]) != len(expectedRow) {
 		t.Errorf("Row length = %d, want %d", len(rows[0]), len(expectedRow))
 	}
