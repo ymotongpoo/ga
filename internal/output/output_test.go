@@ -556,3 +556,215 @@ func TestHandleFileCreationError(t *testing.T) {
 		t.Errorf("Expected generic error message, got: %s", err.Error())
 	}
 }
+
+// TestMultiStreamURLJoining は複数ストリームでのURL結合機能をテストする
+func TestMultiStreamURLJoining(t *testing.T) {
+	// 複数ストリームのテストデータを作成
+	testData := &analytics.ReportData{
+		Headers: []string{"property_id", "stream_id", "date", "pagePath", "sessions", "activeUsers"},
+		Rows: [][]string{
+			// ストリーム1のデータ
+			{"320031301", "3282358539", "2024-01-01", "/entry/2024/01/01/120000", "10", "8"},
+			{"320031301", "3282358539", "2024-01-01", "/entry/2024/01/02/120000", "15", "12"},
+			// ストリーム2のデータ
+			{"321189208", "3803158344", "2024-01-01", "/articles/go-tutorial", "20", "18"},
+			{"321189208", "3803158344", "2024-01-01", "/articles/python-basics", "25", "22"},
+		},
+		StreamURLs: map[string]string{
+			"3282358539": "https://ymotongpoo.hatenablog.com",
+			"3803158344": "https://zenn.com/ymotongpoo",
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows:  4,
+			DateRange:  "2024-01-01 - 2024-01-01",
+			Properties: []string{"320031301", "321189208"},
+		},
+	}
+
+	// 出力サービスを作成
+	outputService := NewOutputService()
+
+	// CSV出力をテスト
+	var buf bytes.Buffer
+	err := outputService.WriteCSV(testData, &buf)
+	if err != nil {
+		t.Fatalf("WriteCSV failed: %v", err)
+	}
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	// ヘッダー行をチェック（pagePathがfullURLに変換されているか）
+	expectedHeader := "property_id,stream_id,date,fullURL,sessions,activeUsers"
+	if lines[0] != expectedHeader {
+		t.Errorf("Expected header: %s, got: %s", expectedHeader, lines[0])
+	}
+
+	// 各行のURL結合結果をチェック
+	expectedRows := []string{
+		"320031301,3282358539,2024-01-01,https://ymotongpoo.hatenablog.com/entry/2024/01/01/120000,10,8",
+		"320031301,3282358539,2024-01-01,https://ymotongpoo.hatenablog.com/entry/2024/01/02/120000,15,12",
+		"321189208,3803158344,2024-01-01,https://zenn.com/ymotongpoo/articles/go-tutorial,20,18",
+		"321189208,3803158344,2024-01-01,https://zenn.com/ymotongpoo/articles/python-basics,25,22",
+	}
+
+	for i, expectedRow := range expectedRows {
+		if i+1 >= len(lines) {
+			t.Fatalf("Expected at least %d lines, got %d", i+2, len(lines))
+		}
+		if lines[i+1] != expectedRow {
+			t.Errorf("Row %d: expected %s, got %s", i+1, expectedRow, lines[i+1])
+		}
+	}
+}
+
+// TestURLJoiningWithDifferentStreamURLs は異なるストリームURLでのURL結合をテストする
+func TestURLJoiningWithDifferentStreamURLs(t *testing.T) {
+	testData := &analytics.ReportData{
+		Headers: []string{"property_id", "stream_id", "date", "pagePath", "sessions"},
+		Rows: [][]string{
+			// ストリーム1のデータ
+			{"320031301", "3282358539", "2024-01-01", "/entry/2024/01/01/120000", "100"},
+			{"320031301", "3282358539", "2024-01-01", "/entry/2024/01/02/120000", "150"},
+			// ストリーム2のデータ
+			{"321189208", "3803158344", "2024-01-01", "/articles/golang-tips", "200"},
+			{"321189208", "3803158344", "2024-01-01", "/articles/web-development", "250"},
+		},
+		StreamURLs: map[string]string{
+			"3282358539": "https://ymotongpoo.hatenablog.com/",
+			"3803158344": "https://zenn.com/ymotongpoo/",
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows: 4,
+			DateRange: "2024-01-01 to 2024-01-01",
+		},
+	}
+
+	// 出力サービスを作成
+	service := NewOutputService()
+
+	// CSV出力をテスト
+	var buf bytes.Buffer
+	err := service.WriteCSV(testData, &buf)
+	if err != nil {
+		t.Fatalf("WriteCSV failed: %v", err)
+	}
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	// 期待される結果
+	expectedLines := []string{
+		"property_id,stream_id,date,fullURL,sessions",
+		"320031301,3282358539,2024-01-01,https://ymotongpoo.hatenablog.com/entry/2024/01/01/120000,100",
+		"320031301,3282358539,2024-01-01,https://ymotongpoo.hatenablog.com/entry/2024/01/02/120000,150",
+		"321189208,3803158344,2024-01-01,https://zenn.com/ymotongpoo/articles/golang-tips,200",
+		"321189208,3803158344,2024-01-01,https://zenn.com/ymotongpoo/articles/web-development,250",
+	}
+
+	if len(lines) != len(expectedLines) {
+		t.Fatalf("Expected %d lines, got %d", len(expectedLines), len(lines))
+	}
+
+	for i, expectedLine := range expectedLines {
+		if lines[i] != expectedLine {
+			t.Errorf("Line %d: expected %s, got %s", i, expectedLine, lines[i])
+		}
+	}
+}
+
+// TestURLJoiningWithMissingStreamURL はStreamURLが設定されていない場合のテスト
+func TestURLJoiningWithMissingStreamURL(t *testing.T) {
+	testData := &analytics.ReportData{
+		Headers: []string{"property_id", "stream_id", "date", "pagePath", "sessions"},
+		Rows: [][]string{
+			{"320031301", "3282358539", "2024-01-01", "/entry/2024/01/01/120000", "100"},
+			{"321189208", "unknown_stream", "2024-01-01", "/articles/golang-tips", "200"},
+		},
+		StreamURLs: map[string]string{
+			"3282358539": "https://ymotongpoo.hatenablog.com/",
+			// "unknown_stream" は意図的に設定しない
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows: 2,
+			DateRange: "2024-01-01 to 2024-01-01",
+		},
+	}
+
+	service := NewOutputService()
+	var buf bytes.Buffer
+	err := service.WriteCSV(testData, &buf)
+	if err != nil {
+		t.Fatalf("WriteCSV failed: %v", err)
+	}
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	// 期待される結果（unknown_streamの場合はpagePathがそのまま残る）
+	expectedLines := []string{
+		"property_id,stream_id,date,fullURL,sessions",
+		"320031301,3282358539,2024-01-01,https://ymotongpoo.hatenablog.com/entry/2024/01/01/120000,100",
+		"321189208,unknown_stream,2024-01-01,/articles/golang-tips,200",
+	}
+
+	if len(lines) != len(expectedLines) {
+		t.Fatalf("Expected %d lines, got %d", len(expectedLines), len(lines))
+	}
+
+	for i, expectedLine := range expectedLines {
+		if lines[i] != expectedLine {
+			t.Errorf("Line %d: expected %s, got %s", i, expectedLine, lines[i])
+		}
+	}
+}
+
+// TestJSONOutputWithMultiStream は複数ストリームでのJSON出力をテストする
+func TestJSONOutputWithMultiStream(t *testing.T) {
+	testData := &analytics.ReportData{
+		Headers: []string{"property_id", "stream_id", "date", "pagePath", "sessions"},
+		Rows: [][]string{
+			{"320031301", "3282358539", "2024-01-01", "/entry/2024/01/01/120000", "100"},
+			{"321189208", "3803158344", "2024-01-01", "/articles/golang-tips", "200"},
+		},
+		StreamURLs: map[string]string{
+			"3282358539": "https://ymotongpoo.hatenablog.com/",
+			"3803158344": "https://zenn.com/ymotongpoo/",
+		},
+		Summary: analytics.ReportSummary{
+			TotalRows: 2,
+			DateRange: "2024-01-01 to 2024-01-01",
+		},
+	}
+
+	service := NewOutputService()
+	var buf bytes.Buffer
+	err := service.WriteJSON(testData, &buf)
+	if err != nil {
+		t.Fatalf("WriteJSON failed: %v", err)
+	}
+
+	output := buf.String()
+
+	// JSON出力にURL結合結果が含まれているかチェック
+	expectedURLs := []string{
+		"https://ymotongpoo.hatenablog.com/entry/2024/01/01/120000",
+		"https://zenn.com/ymotongpoo/articles/golang-tips",
+	}
+
+	for _, expectedURL := range expectedURLs {
+		if !strings.Contains(output, expectedURL) {
+			t.Errorf("JSON output does not contain expected URL: %s", expectedURL)
+		}
+	}
+
+	// fullURLキーが含まれているかチェック
+	if !strings.Contains(output, "\"fullURL\"") {
+		t.Error("JSON output does not contain 'fullURL' key")
+	}
+
+	// ストリームIDがメタデータに含まれているかチェック
+	if !strings.Contains(output, "\"stream_id\"") {
+		t.Error("JSON output does not contain 'stream_id' in metadata")
+	}
+}
