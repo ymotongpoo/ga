@@ -5,3 +5,6 @@ ga.yoshi.yaml
 
 CLAUDE.md
 .serena
+
+*.csv
+*.json

@@ -402,14 +402,4 @@ go build -ldflags="-s -w" -o ga cmd/ga/main.go
 
 ## ライセンス
 
-このプロジェクトは MIT ライセンスの下で公開されています。
-
-## 貢献
-
-バグ報告や機能要望は、GitHub Issues でお知らせください。プルリクエストも歓迎します。
-
-## サポート
-
-- GitHub Issues: バグ報告・機能要望
-- ドキュメント: このREADMEファイル
-- Google Analytics 4 API ドキュメント: [公式ドキュメント](https://developers.google.com/analytics/devguides/reporting/data/v1)
+このプロジェクトは Apache License version 2.0 の下で公開されています。
