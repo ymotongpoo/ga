@@ -334,6 +334,21 @@ func (a *AnalyticsServiceImpl) fetchDataConcurrently(ctx context.Context, reques
 
 		// データ行を変換（ストリームIDも含める）
 		rows := a.convertResponseToRows(res.response, res.propertyID, res.streamID)
+
+		// デバッグ情報を出力
+		fmt.Printf("[DEBUG] プロパティ %s, ストリーム %s から %d 行のデータを取得\n", res.propertyID, res.streamID, len(rows))
+		if len(rows) > 0 && len(rows[0]) > 1 {
+			fmt.Printf("[DEBUG] 最初の行のストリームID: %s\n", rows[0][1])
+			fmt.Printf("[DEBUG] 最初の行の全データ: %v\n", rows[0])
+		}
+
+		// 各行のストリームIDを確認
+		for i, row := range rows {
+			if i < 3 && len(row) > 1 { // 最初の3行のみ表示
+				fmt.Printf("[DEBUG] 行 %d: ストリームID = '%s', プロパティID = '%s'\n", i+1, row[1], row[0])
+			}
+		}
+
 		allRows = append(allRows, rows...)
 		properties = append(properties, res.propertyID)
 		totalRows += int(res.response.RowCount)
@@ -361,13 +376,22 @@ func (a *AnalyticsServiceImpl) fetchDataConcurrently(ctx context.Context, reques
 
 	// StreamURLsマッピングを構築
 	streamURLs := make(map[string]string)
+	fmt.Printf("[DEBUG] StreamURLsマッピングを構築中...\n")
 	for _, property := range config.Properties {
+		fmt.Printf("[DEBUG] プロパティ %s のストリームを処理中\n", property.ID)
 		for _, stream := range property.Streams {
 			if stream.BaseURL != "" {
 				streamURLs[stream.ID] = stream.BaseURL
+				fmt.Printf("[DEBUG] ストリーム %s -> %s\n", stream.ID, stream.BaseURL)
+			} else {
+				fmt.Printf("[DEBUG] 警告: ストリーム %s にベースURLが設定されていません\n", stream.ID)
 			}
 		}
 	}
+	fmt.Printf("[DEBUG] 合計 %d 個のストリームURLマッピングを構築\n", len(streamURLs))
+
+	// 最終的なマッピングを確認
+	fmt.Printf("[DEBUG] 最終StreamURLsマッピング: %v\n", streamURLs)
 
 	return &ReportData{
 		Headers:    headers,
@@ -385,8 +409,14 @@ func (a *AnalyticsServiceImpl) fetchDataConcurrently(ctx context.Context, reques
 func (a *AnalyticsServiceImpl) buildReportRequests(config *config.Config) ([]*GA4ReportRequest, error) {
 	var requests []*GA4ReportRequest
 
+	fmt.Printf("[DEBUG] buildReportRequests: %d プロパティを処理中\n", len(config.Properties))
+
 	for _, property := range config.Properties {
+		fmt.Printf("[DEBUG] プロパティ %s: %d ストリーム\n", property.ID, len(property.Streams))
+
 		for _, stream := range property.Streams {
+			fmt.Printf("[DEBUG] ストリーム %s: ベースURL = '%s'\n", stream.ID, stream.BaseURL)
+
 			// メトリクス名を検証・マッピング
 			mappedMetrics, err := a.mapMetrics(stream.Metrics)
 			if err != nil {
@@ -401,6 +431,9 @@ func (a *AnalyticsServiceImpl) buildReportRequests(config *config.Config) ([]*GA
 				Dimensions: stream.Dimensions,
 				Metrics:    mappedMetrics,
 			}
+
+			fmt.Printf("[DEBUG] リクエスト作成: プロパティ=%s, ストリーム=%s\n", request.PropertyID, request.StreamID)
+
 			requests = append(requests, request)
 		}
 	}
@@ -409,6 +442,7 @@ func (a *AnalyticsServiceImpl) buildReportRequests(config *config.Config) ([]*GA
 		return nil, fmt.Errorf("有効なプロパティ設定が見つかりません")
 	}
 
+	fmt.Printf("[DEBUG] 合計 %d リクエストを作成\n", len(requests))
 	return requests, nil
 }
 
@@ -542,7 +576,9 @@ func (a *AnalyticsServiceImpl) buildHeaders(response *GA4ReportResponse) []strin
 func (a *AnalyticsServiceImpl) convertResponseToRows(response *GA4ReportResponse, propertyID, streamID string) [][]string {
 	var rows [][]string
 
-	for _, row := range response.Rows {
+	fmt.Printf("[DEBUG] convertResponseToRows: プロパティID = '%s', ストリームID = '%s', 行数 = %d\n", propertyID, streamID, len(response.Rows))
+
+	for i, row := range response.Rows {
 		var csvRow []string
 
 		// プロパティIDを追加
@@ -559,6 +595,11 @@ func (a *AnalyticsServiceImpl) convertResponseToRows(response *GA4ReportResponse
 		// メトリクス値を追加
 		for _, metricValue := range row.MetricValues {
 			csvRow = append(csvRow, metricValue.Value)
+		}
+
+		// 最初の数行のデバッグ情報を出力
+		if i < 2 {
+			fmt.Printf("[DEBUG] 行 %d 変換結果: %v\n", i+1, csvRow)
 		}
 
 		rows = append(rows, csvRow)

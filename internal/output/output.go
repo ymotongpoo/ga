@@ -184,6 +184,10 @@ func (o *OutputServiceImpl) WriteCSV(data *analytics.ReportData, writer io.Write
 	urlProcessor := url.NewURLProcessor(data.StreamURLs)
 	processedHeaders, pagePathIndex := o.processHeaders(data.Headers)
 
+	// デバッグ情報を出力
+	fmt.Printf("[DEBUG] CSV出力: StreamURLs = %v\n", data.StreamURLs)
+	fmt.Printf("[DEBUG] CSV出力: pagePathIndex = %d\n", pagePathIndex)
+
 	// ヘッダー行を書き込み
 	if len(processedHeaders) > 0 {
 		if err := csvWriter.Write(processedHeaders); err != nil {
@@ -1028,10 +1032,19 @@ func (o *OutputServiceImpl) processRow(row []string, pagePathIndex int, urlProce
 	// ストリームIDを取得
 	streamID := o.extractStreamIDFromRow(row, headers)
 
+	// デバッグ情報を出力
+	fmt.Printf("[DEBUG] processRow: ストリームID = '%s'\n", streamID)
+
 	// pagePathとベースURLを結合
 	pagePath := row[pagePathIndex]
+	baseURL := urlProcessor.GetStreamURL(streamID)
+
+	fmt.Printf("[DEBUG] processRow: pagePath = '%s', baseURL = '%s'\n", pagePath, baseURL)
+
 	fullURL := urlProcessor.ProcessPagePath(streamID, pagePath)
 	processedRow[pagePathIndex] = fullURL
+
+	fmt.Printf("[DEBUG] processRow: 結合結果 = '%s'\n", fullURL)
 
 	return processedRow
 }
@@ -1068,10 +1081,19 @@ func (o *OutputServiceImpl) processRowForJSON(row []string, headers []string, ur
 	// ストリームIDを取得
 	streamID := o.extractStreamIDFromRow(row, headers)
 
+	// デバッグ情報を出力
+	fmt.Printf("[DEBUG] processRowForJSON: ストリームID = '%s'\n", streamID)
+
 	// pagePathとベースURLを結合
 	pagePath := row[pagePathIndex]
+	baseURL := urlProcessor.GetStreamURL(streamID)
+
+	fmt.Printf("[DEBUG] processRowForJSON: pagePath = '%s', baseURL = '%s'\n", pagePath, baseURL)
+
 	fullURL := urlProcessor.ProcessPagePath(streamID, pagePath)
 	processedRow[pagePathIndex] = fullURL
+
+	fmt.Printf("[DEBUG] processRowForJSON: 結合結果 = '%s'\n", fullURL)
 
 	return processedRow
 }
